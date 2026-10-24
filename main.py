@@ -1,6 +1,7 @@
 import sys
 from PySide6.QtWidgets import QApplication
 
+from src.analysis.analyse import analyse
 from src.api.database import get_connection, init_db
 from src.catalog import units, artifacts
 from src.battles import battles
@@ -18,4 +19,5 @@ def run_application():
     )
 
 if __name__ == "__main__":
-    run_application()
+    #run_application()
+    analyse()

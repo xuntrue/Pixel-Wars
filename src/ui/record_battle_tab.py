@@ -79,6 +79,16 @@ class RecordBattleTab(QWidget):
             QMessageBox.warning(self, "Empty army", "Both armies need at least one unit.")
             return
 
+        
+        error = battles._winner_error( # Winner must have survivors, loser must have none
+            winner,
+            sum(self.panel_a.remaining().values()),
+            sum(self.panel_b.remaining().values()),
+        )
+        if error:
+            QMessageBox.warning(self, "Inconsistent result", error)
+            return
+
         try:
             battle_id = battles.record(
                 self.conn, winner,

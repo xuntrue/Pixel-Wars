@@ -13,6 +13,24 @@ def _validate_side(side: str, army: dict[int, int], remaining: dict[int, int], d
         if dealt < 0:
             raise ValueError(f"Side {side}: unit {unit_id} has negative damage dealt")
 
+def _winner_error(winner: str, survivors_a: int, survivors_b: int) -> str | None:
+    """
+    Rule for decisive battles: the winning army keeps at least 1 unit and the
+    losing army has none. Returns an error message, or None if the result is
+    consistent. Draws are not checked.
+    """
+    if winner not in ("A", "B"):
+        return None
+    loser = "B" if winner == "A" else "A"
+    left = {"A": survivors_a, "B": survivors_b}
+    if left[winner] < 1:
+        return (f"Army {winner} is marked as the winner but has no survivors. "
+                f"The winning army needs at least 1 surviving unit.")
+    if left[loser] != 0:
+        return (f"Army {loser} lost but still has {left[loser]} survivor(s). "
+                f"The losing army must have 0 survivors.")
+    return None
+
 # --- CREATE ---
 def record(conn, winner: str,
            army_a: dict[int, int], army_b: dict[int, int],
@@ -30,6 +48,10 @@ def record(conn, winner: str,
     army_b = {u: c for u, c in army_b.items() if c > 0}
     _validate_side("A", army_a, remaining_a, damage_dealt_a)
     _validate_side("B", army_b, remaining_b, damage_dealt_b)
+
+    error = _winner_error(winner, sum(remaining_a.values()), sum(remaining_b.values()))
+    if error:
+        raise ValueError(error)
 
     with conn:  # rolls back everything if any insert fails
         cur = conn.execute(
