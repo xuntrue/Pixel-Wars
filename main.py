@@ -1,20 +1,21 @@
+import sys
+from PySide6.QtWidgets import QApplication
+
 from src.api.database import get_connection, init_db
 from src.catalog import units, artifacts
 from src.battles import battles
+from src.ui.main_window import MainWindow
 
-conn = get_connection()
+def run_application():
+    conn = get_connection()
+    init_db(conn)
 
-init_db(conn)
+    app = QApplication(sys.argv)
+    window = MainWindow(conn)
+    window.show()
+    sys.exit(
+        app.exec() # starts the event loop
+    )
 
-# Create Units
-knight = units.create(conn, "Knight", damage=10, speed=1.0, health=100)
-hunter = units.create(conn, "Hunter", damage=15, speed=1.5, health=50)
-
-# Create Artifacts
-shield = artifacts.create(conn, "Shield")
-
-# Create battle
-bid = battles.record(conn, winner="B", army_a={knight: 3}, army_b={hunter: 4}, artifacts_a=[], artifacts_b=[shield])
-
-print(dict(battles.list_all(conn)[0]))
-print(battles.format_details(battles.get_details(conn, bid)))
+if __name__ == "__main__":
+    run_application()
