@@ -493,7 +493,8 @@ def data_quality(ds: Dataset) -> None:
     line(f"Draws where both sides were wiped out:                   {int(((draws['a_survivors'] == 0) & (draws['b_survivors'] == 0)).sum())}")
     line(f"Draws where both sides still have survivors:             {int(((draws['a_survivors'] > 0) & (draws['b_survivors'] > 0)).sum())}")
     line(f"Battles where both sides dealt 0 damage:                 {int(((done['a_damage_dealt'] == 0) & (done['b_damage_dealt'] == 0)).sum())}")
-    line(f"Decisive battles where the loser out-damaged the winner: {int((d['lose_damage_dealt'] > d['win_damage_dealt']).sum())}")
+    loser_out_damage_count = int((d['lose_damage_dealt'] > d['win_damage_dealt']).sum())
+    line(f"Decisive battles where the loser out-damaged the winner: {loser_out_damage_count} ({100*loser_out_damage_count / len(d) :.2f}%)")
     note("the 'other checks' aren't necessarily errors (timeouts, overkill and "
          "regeneration can all cause them). They are worth a second look if the counts are large.")
 
