@@ -6,12 +6,12 @@ import pandas as pd
 WIDTH = 78
 
 def title(text: str) -> None:
-    print("\n" + "=" * WIDTH)
-    print(text.upper())
-    print("=" * WIDTH)
+    print("\n" + ("=" * WIDTH))
+    print(f" {text.upper()} ")
+    print(("=" * WIDTH))
 
 def subtitle(text: str) -> None:
-    print(f"\n--- {text} ---")
+    print(f"\n----- {text} -----")
 
 def line(text: str = "") -> None:
     print(f"  {text}" if text else "")
@@ -20,7 +20,7 @@ def note(text: str) -> None:
     print(f"  Note: {text}")
 
 def pct(part, whole) -> str:
-    return f"{100 * part / whole:.1f}%" if whole else "n/a"
+    return f"{100 * part / whole:.2f}%" if whole else "n/a"
 
 def show(df: pd.DataFrame, index: bool = False) -> None:
     """Print a whole DataFrame (never truncated), indented."""

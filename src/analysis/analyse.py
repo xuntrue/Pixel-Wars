@@ -6,8 +6,8 @@ from src.api.database import get_connection, init_db
 from .loader import Dataset, load_dataset
 from .stats import add_win_rate, line, note, pct, show, subtitle, title, wilson
 
-TOP_N = 10        # length of the "top" lists for combinatorial tables
-MIN_SAMPLE = 5    # fewer decisive appearances than this -> flagged "low n"
+TOP_N = 5        # length of the "top" lists for combinatorial tables
+MIN_SAMPLE = 10   # fewer decisive appearances than this -> flagged "low n"
 
 # (column suffix, label) for "does the stronger army win?"
 COMPARE = [
@@ -68,15 +68,49 @@ def _cooccurrence(rows: pd.DataFrame, id_col: str, result_of: dict) -> dict:
             stats.setdefault(pair, {"wins": 0, "losses": 0, "draws": 0})[outcome] += 1
     return stats
 
-def _pair_frame(stats: dict, names: pd.Series, first="first", second="second") -> pd.DataFrame:
+def _pair_frame(stats: dict, first_names: pd.Series, second_names: pd.Series,
+                first: str, second: str) -> pd.DataFrame:
+    """Every pair with win/loss/draw tallies and win rates (not sorted or trimmed)."""
     rows = []
     for (x, y), t in stats.items():
-        rows.append({first: names.get(x, x), second: names.get(y, y),
+        rows.append({first: first_names.get(x, x), second: second_names.get(y, y),
                      "appearances": t["wins"] + t["losses"] + t["draws"], **t})
     if not rows:
         return pd.DataFrame()
-    df = add_win_rate(pd.DataFrame(rows))
+    return add_win_rate(pd.DataFrame(rows))
+
+
+def _most_common(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
     return df.sort_values("appearances", ascending=False).head(TOP_N)
+
+def _show_best_win_rate(df: pd.DataFrame) -> None:
+    """Highest win rates among combinations with enough decisive appearances."""
+    if not df.empty:
+        enough = df[(df["wins"] + df["losses"]) >= MIN_SAMPLE]
+        best = enough.sort_values(["win_pct", "ci_low"], ascending=False).head(TOP_N)
+    else:
+        best = df
+    if best.empty:
+        line(f"No combination has {MIN_SAMPLE}+ decisive appearances yet.")
+    else:
+        show(best)
+
+def _unit_artifact_cooccurrence(ds: Dataset, result_of: dict) -> dict:
+    """(unit, artifact) pairs that were on the same side -> win/loss/draw tallies."""
+    key_for = {"win": "wins", "loss": "losses", "draw": "draws"}
+    artifacts_by_side = {key: list(g["artifact_id"])
+                         for key, g in ds.artifact_rows.groupby(["battle_id", "side"])}
+    stats = {}
+    for key, group in ds.unit_rows.groupby(["battle_id", "side"]):
+        outcome = key_for[result_of[key]]
+        for unit_id in group["unit_id"]:
+            for artifact_id in artifacts_by_side.get(key, []):
+                tally = stats.setdefault((unit_id, artifact_id),
+                                         {"wins": 0, "losses": 0, "draws": 0})
+                tally[outcome] += 1
+    return stats
 
 # ========== Sections ==========
 def overview(ds: Dataset) -> None:
@@ -270,22 +304,35 @@ def artifact_performance(ds: Dataset) -> None:
     ).reset_index()
     show(add_win_rate(by_count))
 
-
 def combinations_section(ds: Dataset) -> None:
     title("9. Combinations")
     result_of = {(r.battle_id, r.side): r.result for r in ds.sides.itertuples()}
     unit_names = ds.units.set_index("unit_id")["name"]
     artifact_names = ds.artifacts.set_index("artifact_id")["name"]
 
+    unit_pairs = _pair_frame(_cooccurrence(ds.unit_rows, "unit_id", result_of),
+                             unit_names, unit_names, "unit_1", "unit_2")
+    artifact_pairs = _pair_frame(_cooccurrence(ds.artifact_rows, "artifact_id", result_of),
+                                 artifact_names, artifact_names, "artifact_1", "artifact_2")
+    unit_artifact = _pair_frame(_unit_artifact_cooccurrence(ds, result_of),
+                                unit_names, artifact_names, "unit", "artifact")
+
     subtitle(f"Most common unit pairs in the same army (top {TOP_N})")
-    pairs = _pair_frame(_cooccurrence(ds.unit_rows, "unit_id", result_of), unit_names,
-                        "unit_1", "unit_2")
-    show(pairs)
+    show(_most_common(unit_pairs))
+
+    subtitle(f"Unit pairs in the same army with the highest win rate "
+             f"(top {TOP_N}, min {MIN_SAMPLE} decisive appearances)")
+    _show_best_win_rate(unit_pairs)
+
+    subtitle(f"Most common unit + artifact combinations in the same army (top {TOP_N})")
+    show(_most_common(unit_artifact))
+
+    subtitle(f"Unit + artifact combinations with the highest win rate "
+             f"(top {TOP_N}, min {MIN_SAMPLE} decisive appearances)")
+    _show_best_win_rate(unit_artifact)
 
     subtitle(f"Most common artifact pairs in the same army (top {TOP_N})")
-    pairs = _pair_frame(_cooccurrence(ds.artifact_rows, "artifact_id", result_of),
-                        artifact_names, "artifact_1", "artifact_2")
-    show(pairs)
+    show(_most_common(artifact_pairs))
 
     subtitle(f"Most common unit matchups across the two armies (top {TOP_N})")
     by_side = {key: sorted(g["unit_id"])
@@ -300,10 +347,12 @@ def combinations_section(ds: Dataset) -> None:
                 pair, side = ((x, y), "A") if x < y else ((y, x), "B")
                 outcome = key_for[result_of[(battle_id, side)]]
                 matchups.setdefault(pair, {"wins": 0, "losses": 0, "draws": 0})[outcome] += 1
-    show(_pair_frame(matchups, unit_names, "unit_1", "vs_unit_2"))
-    note("In matchups, wins/win_pct are from unit_1's point of view.")
-    note("In pair tables, wins/win_pct are for the army that contains both items.")
+    show(_most_common(_pair_frame(matchups, unit_names, unit_names, "unit_1", "vs_unit_2")))
 
+    #note("In matchups, wins/win_pct are from unit_1's point of view.")
+    #note("In every other table, wins/win_pct are for armies that contain both items.")
+    #note("The win-rate rankings are exploratory. Combinations that mostly appear in big armies look good because the armies are big,"
+    #     " and one battle feeds several rows, so rows aren't independent. Check ci_low / ci_high: a wide interval is weak evidence.")
 
 def battle_results(ds: Dataset) -> None:
     title("10. How battles end (survivors and damage)")
@@ -336,7 +385,6 @@ def battle_results(ds: Dataset) -> None:
     note("'Damage dealt / enemy total HP' above 1.0 means overkill (damage that "
          "exceeded the enemy's total health, or hit already-dying units).")
     note("These columns are OUTCOMES. Do not use them as features to predict the winner.")
-
 
 def carry_over(ds: Dataset) -> None:
     title("11. Carry-over rounds")
