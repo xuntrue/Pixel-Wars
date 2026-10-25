@@ -3,9 +3,15 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from src.api.database import ATTACK_SPEEDS
+
+
 # Per-army aggregates that exist BEFORE the battle (usable as ML features).
-PRE_BATTLE_METRICS = ["units", "types", "total_hp", "total_atk",
-                      "atk_x_speed", "avg_speed", "artifacts"]
+PRE_BATTLE_METRICS = ["units", "types", "total_hp", "total_atk", "atk_x_rate", "avg_speed", "avg_attack_speed", "artifacts"]
+
+# Ordinal encoding: Very Slow = 1 ... Very Fast = 5
+ATTACK_SPEED_RANK = {name: rank for rank, name in enumerate(ATTACK_SPEEDS, start=1)}
+
 # Per-army aggregates that are OUTCOMES of the battle (never use as features).
 RESULT_METRICS = ["survivors", "damage_dealt"]
 
@@ -22,6 +28,7 @@ class Dataset:
     artifact_rows: pd.DataFrame  # one row per (battle, side, artifact)
     excluded: int = 0            # battles dropped because of SUSPICIOUS_IDS
 
+# --- Helper function(s) ---
 def _result(winner: pd.Series, side: pd.Series) -> pd.Series:
     """'win' / 'loss' / 'draw' from the point of view of `side`."""
     result = pd.Series("loss", index=winner.index, dtype=object)
@@ -29,12 +36,19 @@ def _result(winner: pd.Series, side: pd.Series) -> pd.Series:
     result.loc[winner == side] = "win"
     return result
 
+def _sum_if_complete(s: pd.Series) -> float:
+    return s.sum() if s.notna().all() else np.nan
+
 def _sum_known(s: pd.Series) -> float:
     return s.sum(min_count=1)  # all-missing stays missing instead of becoming 0
 
+# --- Entry point ---
 def load_dataset(conn) -> Dataset:
     units = pd.read_sql_query(
-        "SELECT id AS unit_id, name, damage AS atk, speed, health FROM units", conn)
+        "SELECT id AS unit_id, name, damage AS atk, speed, attack_speed, health FROM units",
+        conn)
+    units["attack_speed_rank"] = units["attack_speed"].map(ATTACK_SPEED_RANK) # Ordinal mapping
+
     artifacts = pd.read_sql_query(
         "SELECT id AS artifact_id, name FROM artifacts", conn)
     battles = pd.read_sql_query(
@@ -64,7 +78,9 @@ def load_dataset(conn) -> Dataset:
     bu["result"] = _result(bu["winner"], bu["side"])
     bu["total_hp"] = bu["count"] * bu["health"]
     bu["total_atk"] = bu["count"] * bu["atk"]
-    bu["atk_x_speed"] = bu["count"] * bu["atk"] * bu["speed"]
+    #bu["atk_x_speed"] = bu["count"] * bu["atk"] * bu["speed"]
+    bu["atk_x_rate"] = bu["count"] * bu["atk"] * bu["attack_speed_rank"]
+    bu["rank_sum"] = bu["count"] * bu["attack_speed_rank"]
     bu["speed_sum"] = bu["count"] * bu["speed"]
     bu["has_result"] = bu["remaining"].notna() & bu["damage_dealt"].notna()
     bu["deployed_known"] = bu["count"].where(bu["has_result"], 0)
@@ -84,13 +100,15 @@ def load_dataset(conn) -> Dataset:
         types=("unit_id", "nunique"),
         total_hp=("total_hp", "sum"),
         total_atk=("total_atk", "sum"),
-        atk_x_speed=("atk_x_speed", "sum"),
+        atk_x_rate=("atk_x_rate", _sum_if_complete),
+        rank_sum=("rank_sum", _sum_if_complete),
         speed_sum=("speed_sum", "sum"),
         survivors=("remaining", _sum_known),
         damage_dealt=("damage_dealt", _sum_known),
     ).reset_index()
     sides["avg_speed"] = sides["speed_sum"] / sides["units"]
-    sides = sides.drop(columns="speed_sum")
+    sides["avg_attack_speed"] = sides["rank_sum"] / sides["units"]
+    sides = sides.drop(columns=["speed_sum", "rank_sum"])
 
     incomplete = ~sides["battle_id"].map(complete).astype(bool)
     sides.loc[incomplete, ["survivors", "damage_dealt"]] = np.nan

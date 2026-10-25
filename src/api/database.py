@@ -5,10 +5,14 @@ from pathlib import Path
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 DB_PATH = DATA_DIR / "pixel_wars.db"
 
+ATTACK_SPEEDS = ("Very Slow", "Slow", "Medium", "Fast", "Very Fast")
+_ATTACK_SPEED_SQL = ", ".join(f"'{s}'" for s in ATTACK_SPEEDS)
+
 # Columns added after the first version of the schema.
 MIGRATIONS = [
     ("battle_units", "remaining", "INTEGER CHECK (remaining >= 0)"),
     ("battle_units", "damage_dealt", "REAL CHECK (damage_dealt >= 0)"),
+    ("units", "attack_speed", f"TEXT CHECK (attack_speed IN ({_ATTACK_SPEED_SQL}))"),
 ]
 
 # Columns that no longer belong in the schema
@@ -17,13 +21,14 @@ OBSOLETE_COLUMNS = [
     ("battles", "damage_b"),
 ]
 
-SCHEMA = """
+SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS units (
-    id      INTEGER PRIMARY KEY,
-    name    TEXT NOT NULL UNIQUE,
-    damage  REAL NOT NULL CHECK (damage >= 0),
-    speed   REAL NOT NULL CHECK (speed >= 0),
-    health  REAL NOT NULL CHECK (health > 0)
+    id            INTEGER PRIMARY KEY,
+    name          TEXT NOT NULL UNIQUE,
+    damage        REAL NOT NULL CHECK (damage >= 0),
+    speed         REAL NOT NULL CHECK (speed >= 0),
+    attack_speed  TEXT CHECK (attack_speed IN ({_ATTACK_SPEED_SQL})),
+    health        REAL NOT NULL CHECK (health > 0)
 );
 
 CREATE TABLE IF NOT EXISTS artifacts (

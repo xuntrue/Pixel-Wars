@@ -3,11 +3,11 @@ from itertools import combinations
 import pandas as pd
 
 from src.api.database import get_connection, init_db
-from .loader import Dataset, load_dataset
+from .loader import ATTACK_SPEED_RANK, Dataset, load_dataset
 from .stats import add_win_rate, line, note, pct, show, subtitle, title, wilson
 
 TOP_N = 5        # length of the "top" lists for combinatorial tables
-MIN_SAMPLE = 10   # fewer decisive appearances than this -> flagged "low n"
+MIN_SAMPLE = 20   # fewer decisive appearances than this -> flagged "low n"
 
 # (column suffix, label) for "does the stronger army win?"
 COMPARE = [
@@ -15,7 +15,9 @@ COMPARE = [
     ("types", "Distinct unit types"),
     ("total_hp", "Total HP"),
     ("total_atk", "Total attack"),
-    ("atk_x_speed", "Attack x speed"),
+    ("atk_x_rate", "Attack x attack-speed rank"),
+    ("avg_speed", "Average move speed"),
+    ("avg_attack_speed", "Average attack speed (1=Very Slow, 5=Very Fast)"),
     ("avg_speed", "Average speed"),
     ("artifacts", "Artifact count"),
 ]
@@ -159,17 +161,12 @@ def outcomes(ds: Dataset) -> None:
         low, high = wilson(a_wins, decisive)
         line(f"Army A win rate among decisive battles: {pct(a_wins, decisive)} "
              f"(95% CI {100 * low:.1f}% to {100 * high:.1f}%)")
-        note("if A/B assignment is arbitrary, ~50% is expected; a persistent gap "
-             "may mean you tend to put the same kind of army on one side.")
-
+        note("if A/B assignment is arbitrary, ~50% is expected; a persistent gap may mean you tend to put the same kind of army on one side.")
 
 def catalog_usage(ds: Dataset) -> None:
     title("4. Catalog and usage")
-
     subtitle("Unit catalog: stat summary")
-    show(ds.units[["atk", "speed", "health"]].describe(percentiles=[0.25, 0.5, 0.75]).T,
-         index=True)
-
+    show(ds.units[["atk", "speed", "health"]].describe(percentiles=[0.25, 0.5, 0.75]).T, index=True)
     subtitle("Unit types: stats and usage (sorted by total deployed)")
     usage = ds.unit_rows.groupby("unit_id").agg(
         battles=("battle_id", "nunique"),
@@ -179,10 +176,14 @@ def catalog_usage(ds: Dataset) -> None:
     table = ds.units.merge(usage, on="unit_id", how="left")
     table[["battles", "total_deployed"]] = table[["battles", "total_deployed"]].fillna(0).astype(int)
     table = table.sort_values("total_deployed", ascending=False)
-    show(table.drop(columns="unit_id"))
+    show(table.drop(columns=["unit_id", "attack_speed_rank"]))
     unused = table.loc[table["battles"] == 0, "name"].tolist()
     line(f"\nUnit types never used: {len(unused)}"
          + (f"  ({', '.join(unused[:30])}{', ...' if len(unused) > 30 else ''})" if unused else ""))
+
+    subtitle("Attack speed mix across the unit catalog")
+    mix = ds.units["attack_speed"].fillna("(not set)").value_counts().rename_axis("attack_speed")
+    show(mix.reset_index(name="unit_types"))
 
     subtitle("Artifacts: usage (sorted by times held)")
     if ds.artifact_rows.empty:
@@ -196,14 +197,12 @@ def catalog_usage(ds: Dataset) -> None:
     table = table.sort_values("times_held", ascending=False)
     show(table.drop(columns="artifact_id"))
     unused = table.loc[table["times_held"] == 0, "name"].tolist()
-    line(f"\nArtifacts never used: {len(unused)}"
-         + (f"  ({', '.join(unused[:30])}{', ...' if len(unused) > 30 else ''})" if unused else ""))
-
+    line(f"\nArtifacts never used: {len(unused)}" + (f"  ({', '.join(unused[:30])}{', ...' if len(unused) > 30 else ''})" if unused else ""))
 
 def army_composition(ds: Dataset) -> None:
     title("5. Army composition")
     s = ds.sides
-    cols = ["units", "types", "total_hp", "total_atk", "atk_x_speed", "avg_speed", "artifacts"]
+    cols = ["units", "types", "total_hp", "total_atk", "atk_x_rate", "avg_speed", "avg_attack_speed", "artifacts"]
 
     subtitle("Distribution per army (both sides pooled)")
     show(s[cols].describe(percentiles=[0.25, 0.5, 0.75]).T, index=True)
@@ -218,9 +217,8 @@ def army_composition(ds: Dataset) -> None:
     subtitle("Armies by number of distinct unit types")
     show(s["types"].value_counts().sort_index().rename_axis("distinct_types")
          .reset_index(name="armies"))
-    note("'atk_x_speed' is attack stat x speed x count, a rough damage-rate proxy. "
-         "Replace it if you learn how speed really works in the game.")
-
+    #note("'atk_x_speed' is attack stat x speed x count, a rough damage-rate proxy. Replace it if you learn how speed really works in the game.")
+    note("'atk_x_rate' = attack stat x attack-speed rank (1-5) x count, an ordinal proxy for damage rate, not real attacks per second. 'avg_speed' is movement speed.")
 
 def strength_vs_outcome(ds: Dataset) -> None:
     title("6. Does the 'stronger' army win?")
@@ -271,6 +269,18 @@ def unit_performance(ds: Dataset) -> None:
          "units deployed. dmg_per_unit_per_atk divides that by the unit's attack stat, "
          "roughly 'how many attacks landed per unit'.")
     note(f"'low n' = fewer than {MIN_SAMPLE} decisive appearances; those rows sort last.")
+
+    subtitle("Unit performance grouped by attack speed")
+    g = ds.unit_rows.assign(attack_speed=ds.unit_rows["attack_speed"].fillna("(not set)"))
+    by_speed = g.groupby("attack_speed").agg(
+        appearances=("battle_id", "count"),
+        wins=("result", lambda r: int((r == "win").sum())),
+        losses=("result", lambda r: int((r == "loss").sum())),
+        draws=("result", lambda r: int((r == "draw").sum())),
+    ).reset_index()
+    by_speed["order"] = by_speed["attack_speed"].map(ATTACK_SPEED_RANK)
+    by_speed = add_win_rate(by_speed).sort_values("order").drop(columns="order")
+    show(by_speed)
 
 
 def artifact_performance(ds: Dataset) -> None:
@@ -502,7 +512,7 @@ def ml_readiness(ds: Dataset) -> None:
 
     features = seen_units + seen_artifacts
     if features:
-        line(f"Battles per raw feature (A-minus-B counts and flags): {n / features:.1f}")
+        line(f"Battles per raw feature: {n / features:.2f}")
         if n / features < 10:
             note("under ~10 battles per feature is thin for per-unit features; "
                  "aggregate features (total HP, attack, ...) will generalise better.")
@@ -515,7 +525,7 @@ def ml_readiness(ds: Dataset) -> None:
     h = _heuristic_table(ds)
     if not h.empty:
         best = h.sort_values("accuracy_pct", ascending=False).iloc[0]
-        line(f"Best single-metric heuristic: '{best['metric']}' at {best['accuracy_pct']:.1f}% "
+        line(f"Best single-metric heuristic: '{best['metric']}' at {best['accuracy_pct']:.2f}% "
              f"over {int(best['compared'])} battles. A model should beat this.")
     note("when you train, keep a battle and its side-swapped copy in the same "
          "cross-validation fold (e.g. GroupKFold on battle id), or the score will be inflated.")
