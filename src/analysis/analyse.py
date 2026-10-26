@@ -7,7 +7,7 @@ from .loader import ATTACK_SPEED_RANK, Dataset, load_dataset
 from .stats import add_win_rate, line, note, pct, show, subtitle, title, wilson
 
 TOP_N = 5        # length of the "top" lists for combinatorial tables
-MIN_SAMPLE = 20   # fewer decisive appearances than this -> flagged "low n"
+MIN_SAMPLE = 25   # fewer decisive appearances than this -> flagged "low n"
 
 # (column suffix, label) for "does the stronger army win?"
 COMPARE = [
@@ -455,13 +455,16 @@ def consistency(ds: Dataset) -> None:
     if len(repeated):
         line(f"Repeat consistency: {pct(len(repeated) - len(conflicting), len(repeated))}")
     if len(conflicting):
-        subtitle(f"Battle ids with identical setups but different outcomes (up to {TOP_N})")
-        ids = (m[m["matchup"].isin(conflicting.index)].reset_index()
-               .groupby("matchup")["battle_id"].agg(list))
-        for battle_ids in ids.head(TOP_N):
+        display_top_n = False
+        subtitle("Battle ids with identical setups but different outcomes" + 
+                 (f" (up to {TOP_N})" if display_top_n else "")
+                 )
+        ids = (m[m["matchup"].isin(conflicting.index)].reset_index().groupby("matchup")["battle_id"].agg(list))
+        if display_top_n:
+            ids = ids.head(TOP_N)
+        for battle_ids in ids:
             line(f"battles {battle_ids}")
-    note("If the game is deterministic, conflicts mean a data-entry mistake. If it has "
-         "randomness, conflicts show a ceiling on achievable prediction accuracy.")
+    note("If the game is deterministic, conflicts mean a data-entry mistake. If it has randomness, conflicts show a ceiling on achievable prediction accuracy.")
 
 
 def data_quality(ds: Dataset) -> None:
@@ -474,8 +477,7 @@ def data_quality(ds: Dataset) -> None:
     subtitle("Rule: the winner has at least 1 survivor, the loser has 0")
     bad_winner = d[d["win_survivors"] < 1]
     bad_loser = d[d["lose_survivors"] > 0]
-    violations = sorted({int(x) for x in bad_winner["battle_id"]}
-                        | {int(x) for x in bad_loser["battle_id"]})
+    violations = sorted({int(x) for x in bad_winner["battle_id"]} | {int(x) for x in bad_loser["battle_id"]})
     line(f"Decisive battles checked:      {len(d)}")
     line(f"Winner has 0 survivors:        {len(bad_winner)}")
     line(f"Loser still has survivors:     {len(bad_loser)}")
@@ -513,10 +515,18 @@ def ml_readiness(ds: Dataset) -> None:
 
     features = seen_units + seen_artifacts
     if features:
-        line(f"Battles per raw feature: {n / features:.2f}")
-        if n / features < 10:
-            note("under ~10 battles per feature is thin for per-unit features; "
-                 "aggregate features (total HP, attack, ...) will generalise better.")
+        rows_per_features = n / features
+        line(f"Battles per raw feature: {rows_per_features:.2f}")
+        if rows_per_features < 5:
+            note("under ~5 battles per feature is danger zone. Only heavily regularized, simple models would work.")
+        elif rows_per_features < 10:
+            note("under ~10 battles per feature is thin for per-unit features; expect wide uncertainty.")
+        elif rows_per_features < 20:
+            note("under ~20 battles per feature is marginal for per-unit features; keep the model simple.")
+        elif rows_per_features < 50:
+            note("under ~50 battles per feature is workable for per-unit features; comfortable for more complex models.")
+        else:
+            note("over ~50 battles per feature is satisfactory for per-unit features; flexible models, interactions, small effects, noisy labels, and neural networks.")
 
     per_unit = ds.unit_rows.groupby("unit_id")["battle_id"].nunique()
     rare = int((per_unit < MIN_SAMPLE).sum())
