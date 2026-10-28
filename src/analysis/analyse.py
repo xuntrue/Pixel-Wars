@@ -7,7 +7,7 @@ from .loader import ATTACK_SPEED_RANK, Dataset, load_dataset
 from .stats import add_win_rate, line, note, pct, show, subtitle, title, wilson
 
 TOP_N = 5        # length of the "top" lists for combinatorial tables
-MIN_SAMPLE = 25   # fewer decisive appearances than this -> flagged "low n"
+MIN_SAMPLE = 40  # fewer decisive appearances than this -> flagged "low n"
 
 # (column suffix, label) for "does the stronger army win?"
 COMPARE = [
@@ -59,6 +59,56 @@ def _heuristic_table(ds: Dataset) -> pd.DataFrame:
             "corr_with_A_win": d[col].corr(d["a_win"]),
         })
     return pd.DataFrame(rows)
+
+def unit_matchup_matrix(ds: Dataset) -> None:
+    """ Baseline: how often has each unit type faced each other unit type, one on one? """
+    subtitle("Unit type matchups: single-unit baseline (battle counts)")
+    b = ds.battles
+
+    clean = (
+        (b["a_types"] == 1) & (b["b_types"] == 1)             # one unit type per army
+        & (b["a_artifacts"] == 0) & (b["b_artifacts"] == 0)   # no artifacts      
+        & (b["a_units"] == 1) & (b["b_units"] == 1)           # only one unit deployed per army
+    )
+    ids = b.loc[clean, "battle_id"]
+    line(f"Qualifying battles: {len(ids)} of {len(b)}")
+
+    # Rows and columns: every unit type in the catalog, so unseen matchups show up as 0.
+    names = ds.units.sort_values("name").set_index("unit_id")["name"]
+    n = len(names)
+    if n == 0:
+        return
+    matrix = pd.DataFrame(0, index=names.index, columns=names.index)
+
+    if len(ids):
+        pairs = (ds.unit_rows[ds.unit_rows["battle_id"].isin(ids)]
+                 .pivot(index="battle_id", columns="side", values="unit_id")
+                 .dropna())
+        for a_id, b_id in zip(pairs["A"].astype(int), pairs["B"].astype(int)):
+            matrix.loc[a_id, b_id] += 1
+            if a_id != b_id:
+                matrix.loc[b_id, a_id] += 1  # side-swap: the same battle seen from the other side
+
+    show(matrix.rename(index=names, columns=names), index=True)
+
+    total_cells = n * n
+    zero_cells = int((matrix.values == 0).sum())
+    seen_cells = total_cells - zero_cells
+    line()
+    line(f"Matrix cells with 0 battles (matchups not yet seen): {zero_cells} of {total_cells}")
+    line(f"Matchups seen: {seen_cells} of {total_cells} cells ({pct(seen_cells, total_cells)})")
+
+    # X vs Y and Y vs X are the same fight, so also count each pair once.
+    diagonal_seen = int((matrix.values.diagonal() > 0).sum())
+    seen_pairs = (seen_cells + diagonal_seen) // 2
+    total_pairs = n * (n + 1) // 2
+    line(f"Distinct matchups seen (X vs Y = Y vs X): {seen_pairs} of {total_pairs} "
+         f"({pct(seen_pairs, total_pairs)})")
+
+    note("Each cell is the number of qualifying battles between those two unit types. "
+         "The matrix is symmetric because every battle is counted from both sides (side-swap augmentation).")
+    note("The diagonal is mirror matches (the same unit type on both sides)."
+         " A mirror  battle fills its cell once, not twice. The total-cell numbers include the diagonal.")
 
 def _cooccurrence(rows: pd.DataFrame, id_col: str, result_of: dict) -> dict:
     """Pairs of items on the same side -> win/loss/draw tallies."""
@@ -282,6 +332,7 @@ def unit_performance(ds: Dataset) -> None:
     by_speed = add_win_rate(by_speed).sort_values("order").drop(columns="order")
     show(by_speed)
 
+    unit_matchup_matrix(ds)
 
 def artifact_performance(ds: Dataset) -> None:
     title("8. Artifact performance")
