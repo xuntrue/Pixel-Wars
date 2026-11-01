@@ -58,7 +58,7 @@ def clear_all_battles() -> None:
         print(f"Backup saved to {backup_path}")
 
         deleted = battles.delete_all(conn)
-        print(f"Deleted {deleted} battles. Units and artifacts were kept.")
+        print(f"Deleted {deleted} battles. Units, artifacts, and abilities were kept.")
     finally:
         conn.close()
 
@@ -71,8 +71,8 @@ COMMANDS = {
 }
 
 if __name__ == "__main__":
-    #run_recorder()
-    run_catalog_editor()
+    run_recorder()
+    #run_catalog_editor()
     #analyse()
 
     """
@@ -82,3 +82,10 @@ if __name__ == "__main__":
         sys.exit(1)
     COMMANDS[command]()
     """
+
+""" Terminal commands
+python -m src.main               # battle recorder (the default)
+python -m src.main catalog       # units and artifacts
+python -m src.main analyse
+python -m src.main train
+"""
