@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from src.api.database import ATTACK_SPEEDS
+from src.api.database import ATTACK_SPEEDS, get_connection, init_db
 
 
 # Per-army aggregates that exist BEFORE the battle (usable as ML features).
@@ -135,3 +135,13 @@ def load_dataset(conn) -> Dataset:
     battles = battles.sort_values(["timestamp", "battle_id"]).reset_index(drop=True)
 
     return Dataset(units, artifacts, battles, sides, bu, ba, excluded)
+
+def load_default_dataset() -> Dataset:
+    """ Open data/pixel_wars.db through src.api.database, load everything, close """
+    conn = get_connection()
+    init_db(conn)
+    conn.row_factory = None  # pandas wants plain tuples, not sqlite3.Row
+    try:
+        return load_dataset(conn)
+    finally:
+        conn.close()
