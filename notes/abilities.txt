@@ -1,4 +1,35 @@
 AOE
+Attacks hit enemies within X pixels
 
-Poison
+BERSERK
+Gains attack speed after 3 kills
 
+STEALTH
+Starts invisisble
+
+POISON - Serpant
+Poised units move slowly and deal less damage
+
+POISON AURA - Jello
+Applies poison when attacked from close range
+
+ARMOURED
+Blocks half of the first 10 damage of each hit
+
+TERRIFYING
+Makes some enemies flee
+
+RANGED
+Attacks from distance
+
+FIRE
+Deals damage over time
+
+CHARGE
+Ocassionally charges over small units
+
+CHARM
+Sometimes enemies will fail to attack this unit
+
+FREEZE
+Freezes enemies on hit
