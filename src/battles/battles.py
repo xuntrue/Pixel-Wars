@@ -71,6 +71,9 @@ def record(conn, winner: str,
     return battle_id
 
 # --- GET ---
+def count(conn) -> int:
+    return conn.execute("SELECT COUNT(*) FROM battles").fetchone()[0]
+
 def list_all(conn):
     return conn.execute("SELECT * FROM battles ORDER BY id DESC").fetchall()
 
@@ -171,3 +174,15 @@ def delete(conn, battle_id: int) -> None:
     """Cascades to battle_units and battle_artifacts."""
     with conn:
         conn.execute("DELETE FROM battles WHERE id = ?", (battle_id,))
+
+def delete_all(conn) -> int:
+    """
+    Delete every battle with its unit and artifact rows. Units and artifacts
+    themselves are kept. Returns how many battles were deleted.
+    """
+    deleted = count(conn)
+    with conn:  # one transaction: all of it, or none of it
+        conn.execute("DELETE FROM battle_units")
+        conn.execute("DELETE FROM battle_artifacts")
+        conn.execute("DELETE FROM battles")
+    return deleted

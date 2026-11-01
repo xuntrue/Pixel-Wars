@@ -16,7 +16,7 @@ ATTACK_SPEED_RANK = {name: rank for rank, name in enumerate(ATTACK_SPEEDS, start
 RESULT_METRICS = ["survivors", "damage_dealt"]
 
 # Battle ids to leave out
-SUSPICIOUS_IDS: set[int] = set([8, 10, 11, 12, 14, 15, 19, 27, 37, 48])
+SUSPICIOUS_IDS: set[int] = set([])
 
 @dataclass
 class Dataset:
