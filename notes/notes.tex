@@ -1,4 +1,129 @@
-\documentclass{article}
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+
+\setlist{itemsep=2pt, topsep=4pt}
+
+% ------------------------------------------------------------
+% Unit-type macros
+% ------------------------------------------------------------
+
+% \unit{Name}{Damage}{Move speed}{Attack speed}{Health}
+% Starts a new section for the unit and prints its catalog stats.
+\newcommand{\unit}[5]{%
+  \section{#1}\label{unit:#1}
+  \begin{center}
+    \begin{tabular}{cccc}
+      \toprule
+      Damage & Move speed & Attack speed & Health \\
+      \midrule
+      #2 & #3 & #4 & #5 \\
+      \bottomrule
+    \end{tabular}
+  \end{center}
+}
+
+% \unitdata{Battles}{Win rate}{95\% CI}{Survival}{Damage/unit}
+% Paste the numbers from the analysis report (unit performance section).
+\newcommand{\unitdata}[5]{%
+  \subsection*{Data summary}
+  \begin{center}
+    \begin{tabular}{ccccc}
+      \toprule
+      Battles & Win rate & 95\% CI & Survival & Damage/unit \\
+      \midrule
+      #1 & #2 & #3 & #4 & #5 \\
+      \bottomrule
+    \end{tabular}
+  \end{center}
+}
+
+% \unitref{Name} links to another unit's section (the name must match exactly).
+\newcommand{\unitref}[1]{\hyperref[unit:#1]{#1}}
+
+% ------------------------------------------------------------
+% Document
+% ------------------------------------------------------------
+
+\title{Pixel Wars: Unit Type Notes}
+\author{}
+\date{\today}
+
 \begin{document}
-Pixel Wars notes.
+\maketitle
+\tableofcontents
+\newpage
+
+% ============================================================
+% Units (keep them in alphabetical order)
+% Remember to escape special characters in text: \% \& \_ \#
+% ============================================================
+
+\unit{Example Unit A}{--}{--}{--}{--}
+\unitdata{--}{--\%}{--}{--\%}{--}
+
+\subsection*{Role}
+One or two sentences on what this unit is for.
+
+\subsection*{Strengths}
+\begin{itemize}
+  \item
+\end{itemize}
+
+\subsection*{Weaknesses}
+\begin{itemize}
+  \item
+\end{itemize}
+
+\subsection*{Matchups}
+\textbf{Strong against:} \unitref{Example Unit B}\\
+\textbf{Weak against:} \\
+\textbf{Notes:}
+
+\subsection*{Artifact synergies}
+\begin{itemize}
+  \item
+\end{itemize}
+
+\subsection*{Open questions}
+\begin{itemize}
+  \item
+\end{itemize}
+
+% \clearpage  % uncomment to start each unit on a new page
+
+% ------------------------------------------------------------
+\unit{Example Unit B}{--}{--}{--}{--}
+\unitdata{--}{--\%}{--}{--\%}{--}
+
+\subsection*{Role}
+
+\subsection*{Strengths}
+\begin{itemize}
+  \item
+\end{itemize}
+
+\subsection*{Weaknesses}
+\begin{itemize}
+  \item
+\end{itemize}
+
+\subsection*{Matchups}
+\textbf{Strong against:} \\
+\textbf{Weak against:} \unitref{Example Unit A}\\
+\textbf{Notes:}
+
+\subsection*{Artifact synergies}
+\begin{itemize}
+  \item
+\end{itemize}
+
+\subsection*{Open questions}
+\begin{itemize}
+  \item
+\end{itemize}
+
 \end{document}
