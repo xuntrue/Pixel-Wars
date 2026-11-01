@@ -8,18 +8,29 @@ from src.analysis.analyse import analyse
 from src.api.database import DATA_DIR, get_connection, init_db
 from src.catalog import units, artifacts
 from src.battles import battles
-from src.ui.main_window import MainWindow
 
-def run_application():
+from src.ui.catalog_window import CatalogWindow
+from src.ui.record_window import RecordWindow
+
+def _run_window(window_class) -> None:
     conn = get_connection()
     init_db(conn)
 
-    app = QApplication(sys.argv)
-    window = MainWindow(conn)
+    app = QApplication(sys.argv[:1]) 
+    # DO NOT pass our own command-line word on to Qt
+    
+    window = window_class(conn)
     window.show()
-    sys.exit(
-        app.exec() # starts the event loop
-    )
+    exit_code = app.exec()  # Starts the event loop
+    conn.close()
+    sys.exit(exit_code)
+
+def run_recorder() -> None:
+    _run_window(RecordWindow)
+
+
+def run_catalog_editor() -> None:
+    _run_window(CatalogWindow)
 
 def clear_all_battles() -> None:
     """ Delete every recorded battle (units and artifacts are kept). Backs up first. """
@@ -51,5 +62,23 @@ def clear_all_battles() -> None:
     finally:
         conn.close()
 
+COMMANDS = {
+    "record": run_recorder,
+    "catalog": run_catalog_editor,
+    "analyse": analyse,
+    #"train": train,
+    "clear-battles": clear_all_battles,
+}
+
 if __name__ == "__main__":
-    clear_all_battles()
+    #run_recorder()
+    #run_catalog_editor()
+    #analyse()
+
+    """
+    command = sys.argv[1] if len(sys.argv) > 1 else "record"
+    if command not in COMMANDS:
+        print(f"Unknown command '{command}'. Choose one of: {', '.join(COMMANDS)}")
+        sys.exit(1)
+    COMMANDS[command]()
+    """
