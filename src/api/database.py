@@ -36,6 +36,19 @@ CREATE TABLE IF NOT EXISTS artifacts (
     name  TEXT NOT NULL UNIQUE
 );
 
+CREATE TABLE IF NOT EXISTS abilities (
+    id    INTEGER PRIMARY KEY,
+    name  TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS unit_abilities (
+    unit_id     INTEGER NOT NULL REFERENCES units(id) ON DELETE CASCADE,
+    ability_id  INTEGER NOT NULL REFERENCES abilities(id) ON DELETE CASCADE,
+    PRIMARY KEY (unit_id, ability_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_unit_abilities_ability ON unit_abilities(ability_id);
+
 CREATE TABLE IF NOT EXISTS battles (
     id          INTEGER PRIMARY KEY,
     timestamp   TEXT NOT NULL DEFAULT (datetime('now')),

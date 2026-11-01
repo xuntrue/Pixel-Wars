@@ -72,7 +72,7 @@ COMMANDS = {
 
 if __name__ == "__main__":
     #run_recorder()
-    #run_catalog_editor()
+    run_catalog_editor()
     #analyse()
 
     """
