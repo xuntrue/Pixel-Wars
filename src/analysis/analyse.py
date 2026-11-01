@@ -7,7 +7,7 @@ from .loader import ATTACK_SPEED_RANK, Dataset, load_dataset
 from .stats import add_win_rate, line, note, pct, show, subtitle, title, wilson
 
 TOP_N = 5        # length of the "top" lists for combinatorial tables
-MIN_SAMPLE = 40  # fewer decisive appearances than this -> flagged "low n"
+MIN_SAMPLE = 50  # fewer decisive appearances than this -> flagged "low n"
 
 # (column suffix, label) for "does the stronger army win?"
 COMPARE = [
