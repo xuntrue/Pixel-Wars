@@ -1,6 +1,7 @@
 from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import QMainWindow
+from PySide6.QtWidgets import QMainWindow, QTabWidget
 
+from .baseline_tab import BaselineTab
 from .record_battle_tab import RecordBattleTab
 
 class RecordWindow(QMainWindow):
@@ -12,10 +13,19 @@ class RecordWindow(QMainWindow):
         self.resize(1000, 650)
 
         self.record_tab = RecordBattleTab(conn)
-        self.setCentralWidget(self.record_tab)
+        self.baseline_tab = BaselineTab(conn)
+        
+        tabs = QTabWidget()
+        tabs.addTab(self.record_tab, "Record Battle")
+        tabs.addTab(self.baseline_tab, "1v1 Baseline")
+        self.setCentralWidget(tabs)
 
         # Optional: pick up units/artifacts changed in the catalog app without restarting.
         reload_action = QAction("Reload catalog (F5)", self)
         reload_action.setShortcut(QKeySequence("F5"))
-        reload_action.triggered.connect(self.record_tab.rebuild)
+        reload_action.triggered.connect(self.reload_catalog)
         self.menuBar().addAction(reload_action)
+
+    def reload_catalog(self):
+        self.record_tab.rebuild()
+        self.baseline_tab.reload()

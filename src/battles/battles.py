@@ -31,6 +31,37 @@ def _winner_error(winner: str, survivors_a: int, survivors_b: int) -> str | None
                 f"The losing army must have 0 survivors.")
     return None
 
+def _prepare(winner: str, army_a: dict[int, int], army_b: dict[int, int],
+             remaining_a: dict[int, int], remaining_b: dict[int, int],
+             damage_dealt_a: dict[int, float], damage_dealt_b: dict[int, float]):
+    """Validate one battle and return its armies without zero-count entries."""
+    army_a = {u: c for u, c in army_a.items() if c > 0}
+    army_b = {u: c for u, c in army_b.items() if c > 0}
+    _validate_side("A", army_a, remaining_a, damage_dealt_a)
+    _validate_side("B", army_b, remaining_b, damage_dealt_b)
+    error = _winner_error(winner, sum(remaining_a.values()), sum(remaining_b.values()))
+    if error:
+        raise ValueError(error)
+    return army_a, army_b
+
+def _insert(conn, winner, army_a, army_b, remaining_a, remaining_b,
+            damage_dealt_a, damage_dealt_b, artifacts_a, artifacts_b, notes) -> int:
+    """Insert one battle. No transaction handling: the caller wraps it in `with conn:`."""
+    cur = conn.execute(
+        "INSERT INTO battles (winner, notes) VALUES (?, ?)", (winner, notes)
+    )
+    battle_id = cur.lastrowid
+    for side, army, left, dealt, arts in (
+        ("A", army_a, remaining_a, damage_dealt_a, artifacts_a),
+        ("B", army_b, remaining_b, damage_dealt_b, artifacts_b),
+    ):
+        for unit_id, count in army.items():
+            battle_units.add(conn, battle_id, side, unit_id, count,
+                             left.get(unit_id, 0), dealt.get(unit_id, 0))
+        for artifact_id in arts:
+            battle_artifacts.add(conn, battle_id, side, artifact_id)
+    return battle_id
+
 # --- CREATE ---
 def record(conn, winner: str,
            army_a: dict[int, int], army_b: dict[int, int],
@@ -44,31 +75,47 @@ def record(conn, winner: str,
     damage_dealt_x:   unit_id -> total damage dealt by that whole group (missing = 0)
     Everything is saved in one transaction.
     """
-    army_a = {u: c for u, c in army_a.items() if c > 0}
-    army_b = {u: c for u, c in army_b.items() if c > 0}
-    _validate_side("A", army_a, remaining_a, damage_dealt_a)
-    _validate_side("B", army_b, remaining_b, damage_dealt_b)
-
-    error = _winner_error(winner, sum(remaining_a.values()), sum(remaining_b.values()))
-    if error:
-        raise ValueError(error)
-
+    army_a, army_b = _prepare(winner, army_a, army_b, remaining_a, remaining_b, damage_dealt_a, damage_dealt_b)
     with conn:  # rolls back everything if any insert fails
-        cur = conn.execute(
-            "INSERT INTO battles (winner, notes) VALUES (?, ?)",
-            (winner, notes),
-        )
-        battle_id = cur.lastrowid
-        for side, army, left, dealt, arts in (
-            ("A", army_a, remaining_a, damage_dealt_a, artifacts_a),
-            ("B", army_b, remaining_b, damage_dealt_b, artifacts_b),
-        ):
-            for unit_id, count in army.items():
-                battle_units.add(conn, battle_id, side, unit_id, count,
-                                 left.get(unit_id, 0), dealt.get(unit_id, 0))
-            for artifact_id in arts:
-                battle_artifacts.add(conn, battle_id, side, artifact_id)
-    return battle_id
+        return _insert(conn, winner, army_a, army_b, remaining_a, remaining_b, damage_dealt_a, damage_dealt_b, artifacts_a, artifacts_b, notes)
+
+def record_many(conn, batch: list[dict]) -> list[int]:
+    """
+    Save several battles all-or-nothing. Each dict holds the keyword arguments of
+    record() (winner, army_a, army_b, remaining_a, remaining_b, damage_dealt_a,
+    damage_dealt_b, and optionally artifacts_a, artifacts_b, notes).
+    Every battle is validated before anything is written.
+    """
+    prepared = []
+    for kw in batch:
+        army_a, army_b = _prepare(kw["winner"], kw["army_a"], kw["army_b"],
+                                  kw["remaining_a"], kw["remaining_b"],
+                                  kw["damage_dealt_a"], kw["damage_dealt_b"])
+        prepared.append((kw, army_a, army_b))
+    with conn:
+        return [
+            _insert(conn, kw["winner"], army_a, army_b,
+                    kw["remaining_a"], kw["remaining_b"],
+                    kw["damage_dealt_a"], kw["damage_dealt_b"],
+                    kw.get("artifacts_a", ()), kw.get("artifacts_b", ()), kw.get("notes"))
+            for kw, army_a, army_b in prepared
+        ]
+
+def baseline_passes(conn, unit_id: int) -> int:
+    """
+    How many baseline passes exist for a unit. Each pass includes exactly one mirror
+    1v1 (this unit alone, one of it on each side, no artifacts).
+    """
+    return conn.execute(
+        """
+        SELECT COUNT(*) FROM battles b
+        WHERE NOT EXISTS (SELECT 1 FROM battle_artifacts WHERE battle_id = b.id)
+          AND (SELECT COUNT(*) FROM battle_units WHERE battle_id = b.id) = 2
+          AND (SELECT COUNT(*) FROM battle_units
+               WHERE battle_id = b.id AND unit_id = ? AND count = 1) = 2
+        """,
+        (unit_id,),
+    ).fetchone()[0]
 
 # --- GET ---
 def count(conn) -> int:
