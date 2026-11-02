@@ -29,7 +29,7 @@ class RecordBattleTab(QWidget):
         self.winner_box.addItem("Army B wins", "B")
         self.winner_box.addItem("Draw", "draw")
 
-        self.carry_check = QCheckBox("Includes carry-over survivors")
+        self.carry_check = QCheckBox("Carry winner's survivors")
         self.notes_edit = QLineEdit()
         self.notes_edit.setPlaceholderText("Notes (optional)")
 
@@ -68,6 +68,16 @@ class RecordBattleTab(QWidget):
         self.carry_check.setChecked(False)
         self.notes_edit.clear()
 
+    def carry_winner_forward(self, winner: str):
+        """ Clear the losing army, keep the winner's survivors and artifacts """
+        winner_panel, loser_panel = ((self.panel_a, self.panel_b) if winner == "A" else (self.panel_b, self.panel_a))
+        loser_panel.clear()
+        winner_panel.keep_survivors()
+
+        self.winner_box.setCurrentIndex(0)
+        self.notes_edit.clear()
+        # The checkbox stays ticked so a chain of rounds can be recorded in a row
+
     def save(self):
         winner = self.winner_box.currentData()
         if winner is None:
@@ -99,13 +109,16 @@ class RecordBattleTab(QWidget):
                 damage_dealt_b=self.panel_b.damage_by_unit(),
                 artifacts_a=self.panel_a.artifact_ids(),
                 artifacts_b=self.panel_b.artifact_ids(),
-                carry_over=self.carry_check.isChecked(),
                 notes=self.notes_edit.text().strip() or None,
             )
         except (ValueError, sqlite3.Error) as e:
             QMessageBox.critical(self, "Couldn't save battle", str(e))
             return
 
-        self.status.setText(f"Saved battle #{battle_id}")
-        self.clear_form()
+        if self.carry_check.isChecked() and winner in ("A", "B"):
+            self.carry_winner_forward(winner)
+            self.status.setText(f"Saved battle #{battle_id}. Army {winner} carried over.")
+        else:
+            self.clear_form()
+            self.status.setText(f"Saved battle #{battle_id}")
         self.saved.emit()

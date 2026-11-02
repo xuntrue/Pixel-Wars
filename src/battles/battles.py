@@ -37,7 +37,7 @@ def record(conn, winner: str,
            remaining_a: dict[int, int], remaining_b: dict[int, int],
            damage_dealt_a: dict[int, float], damage_dealt_b: dict[int, float],
            artifacts_a: list[int] = (), artifacts_b: list[int] = (),
-           carry_over: bool = False, notes: str | None = None) -> int:
+           notes: str | None = None) -> int:
     """
     army_x:           unit_id -> number deployed
     remaining_x:      unit_id -> number alive at the end (missing = 0)
@@ -55,8 +55,8 @@ def record(conn, winner: str,
 
     with conn:  # rolls back everything if any insert fails
         cur = conn.execute(
-            "INSERT INTO battles (winner, carry_over, notes) VALUES (?, ?, ?)",
-            (winner, int(carry_over), notes),
+            "INSERT INTO battles (winner, notes) VALUES (?, ?)",
+            (winner, notes),
         )
         battle_id = cur.lastrowid
         for side, army, left, dealt, arts in (
@@ -88,7 +88,6 @@ def get_details(conn, battle_id: int) -> dict | None:
         "id": battle["id"],
         "timestamp": battle["timestamp"],
         "winner": battle["winner"],
-        "carry_over": bool(battle["carry_over"]),
         "notes": battle["notes"],
         "sides": {
             s: {"units": [], "artifacts": [], "survivors": None, "damage_dealt": None}
@@ -143,7 +142,7 @@ def format_details(details: dict) -> str:
 
     lines = [
         f"Battle #{details['id']}  ({details['timestamp']})",
-        f"Winner: {details['winner']}   Carry-over: {details['carry_over']}",
+        f"Winner: {details['winner']}",
     ]
     if details["notes"]:
         lines.append(f"Notes: {details['notes']}")

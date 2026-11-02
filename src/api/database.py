@@ -19,6 +19,7 @@ MIGRATIONS = [
 OBSOLETE_COLUMNS = [
     ("battles", "damage_a"),
     ("battles", "damage_b"),
+    ("battles", "carry_over"),
 ]
 
 SCHEMA = f"""
@@ -53,9 +54,6 @@ CREATE TABLE IF NOT EXISTS battles (
     id          INTEGER PRIMARY KEY,
     timestamp   TEXT NOT NULL DEFAULT (datetime('now')),
     winner      TEXT NOT NULL CHECK (winner IN ('A', 'B', 'draw')),
-    carry_over  INTEGER NOT NULL DEFAULT 0 CHECK (carry_over IN (0, 1)),
-    damage_a    REAL CHECK (damage_a >= 0),
-    damage_b    REAL CHECK (damage_b >= 0),
     notes       TEXT
 );
 

@@ -447,23 +447,8 @@ def battle_results(ds: Dataset) -> None:
          "exceeded the enemy's total health, or hit already-dying units).")
     note("These columns are OUTCOMES. Do not use them as features to predict the winner.")
 
-def carry_over(ds: Dataset) -> None:
-    title("11. Carry-over rounds")
-    b = ds.battles.copy()
-    b["type"] = b["carry_over"].map({0: "fresh start", 1: "carry-over"})
-    table = b.groupby("type").agg(
-        battles=("battle_id", "count"),
-        a_wins=("winner", lambda s: int((s == "A").sum())),
-        b_wins=("winner", lambda s: int((s == "B").sum())),
-        draws=("winner", lambda s: int((s == "draw").sum())),
-        avg_units_a=("a_units", "mean"),
-        avg_units_b=("b_units", "mean"),
-    ).reset_index()
-    show(table)
-
-
 def consistency(ds: Dataset) -> None:
-    title("12. Repeated matchups (is the game deterministic?)")
+    title("11. Repeated matchups (is the game deterministic?)")
     ur = ds.unit_rows.sort_values(["battle_id", "side", "unit_id"]).copy()
     ur["token"] = ur["unit_id"].astype(str) + "x" + ur["count"].astype(str)
     unit_sig = ur.groupby(["battle_id", "side"])["token"].agg(",".join).rename("units_sig")
@@ -519,7 +504,7 @@ def consistency(ds: Dataset) -> None:
 
 
 def data_quality(ds: Dataset) -> None:
-    title("13. Data quality checks")
+    title("12. Data quality checks")
     b = ds.battles
     d = _decisive_results(ds)
     done = b[b["complete"]]
@@ -552,7 +537,7 @@ def data_quality(ds: Dataset) -> None:
          "regeneration can all cause them). They are worth a second look if the counts are large.")
 
 def ml_readiness(ds: Dataset) -> None:
-    title("14. Machine-learning readiness")
+    title("13. Machine-learning readiness")
     d = ds.battles[ds.battles["winner"] != "draw"]
     n = len(d)
     seen_units = ds.unit_rows["unit_id"].nunique()
@@ -606,7 +591,7 @@ def analyse() -> None:
 
     for section in (overview, timeline, outcomes, catalog_usage, army_composition,
                     strength_vs_outcome, unit_performance, artifact_performance,
-                    combinations_section, battle_results, carry_over, consistency,
+                    combinations_section, battle_results, consistency,
                     data_quality, ml_readiness):
         section(ds)
     print()

@@ -52,7 +52,7 @@ def load_dataset(conn) -> Dataset:
     artifacts = pd.read_sql_query(
         "SELECT id AS artifact_id, name FROM artifacts", conn)
     battles = pd.read_sql_query(
-        "SELECT id AS battle_id, timestamp, winner, carry_over, notes FROM battles", conn)
+        "SELECT id AS battle_id, timestamp, winner, notes FROM battles", conn)
     bu = pd.read_sql_query("SELECT * FROM battle_units", conn)
     ba = pd.read_sql_query("SELECT * FROM battle_artifacts", conn)
 

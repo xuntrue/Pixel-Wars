@@ -305,8 +305,23 @@ class ArmyPanel(QGroupBox):
     def artifact_ids(self) -> list[int]:
         return [r.combo.selected_id() for r in self.artifact_rows]
 
+    def keep_survivors(self):
+        """ Keep only surviving unit types, with the survivor count as the new deployed count, plus the artifacts """
+        keep = [row for row in self.unit_rows if row.survivors.value() > 0]
+        if not keep:
+            self.clear()
+            return
+        for row in list(self.unit_rows):
+            if row not in keep:
+                self._remove_unit_row(row)
+        for row in keep:
+            survivors = row.survivors.value()
+            row.survivors.setValue(0)
+            row.damage.setValue(0)
+            row.deployed.setValue(survivors)
+
     def clear(self):
-        """Back to the starting state: one unit record, no artifacts."""
+        """ Back to the starting state: one unit record, no artifacts """
         for row in list(self.unit_rows):
             self._remove_unit_row(row)
         for row in list(self.artifact_rows):
