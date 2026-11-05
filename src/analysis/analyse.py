@@ -22,6 +22,8 @@ COMPARE = [
     ("artifacts", "Artifact count"),
 ]
 
+RANK_NAME = {rank: name for name, rank in ATTACK_SPEED_RANK.items()}
+
 # --- Helper function(s) ---
 def _median_attack_speed(ranks: pd.Series) -> str:
     ranks = ranks.dropna()
@@ -32,10 +34,35 @@ def _median_attack_speed(ranks: pd.Series) -> str:
     high = low if median == low else low + 1
     return RANK_NAME[low] if low == high else f"{RANK_NAME[low]} / {RANK_NAME[high]}" # case even count
 
-def _decisive_results(ds: Dataset) -> pd.DataFrame:
-    """ Decisive battles with full results, with winner_/loser_ columns """
+def _real_battle_ids(ds: Dataset) -> pd.Series:
+    """ Battle ids of 'real' battles, which leaves out the 1v1 baseline battles """
     b = ds.battles
-    # mask = (b["a_units"] > 1) & (b["b_units"] > 1) # Add filter
+    mask = (
+        (b["a_units"] > 1) & (b["b_units"] > 1)  # more than one unit deployed per army
+
+        # Alternative: exclude only exact baseline battles (one unit type, one unit
+        # per army, no artifacts), which also keeps real battles with a single-unit army:
+        # ~((b["a_types"] == 1) & (b["b_types"] == 1)
+        #   & (b["a_units"] == 1) & (b["b_units"] == 1)
+        #   & (b["a_artifacts"] == 0) & (b["b_artifacts"] == 0))
+    )
+    return b.loc[mask, "battle_id"]
+
+def _decisive_results(ds: Dataset, filter: bool=True) -> pd.DataFrame:
+    """
+    Decisive battles with full results, with winner_/loser_ columns
+    filter = True: only include "real" battles (more than one unit deployed per army)
+    """
+    b = ds.battles
+    if filter:
+        real_ids = _real_battle_ids(ds)
+        line(f"Qualifying battles: {len(real_ids)} of {len(ds.battles)} ({pct(len(real_ids), len(ds.battles))})")
+        d = ds.battles[ds.battles["battle_id"].isin(real_ids)]
+        if d.empty:
+            line("No qualifying battles yet.")
+            return
+        b = ds.battles[ds.battles["battle_id"].isin(real_ids)]
+
     d = b[b["complete"] & (b["winner"] != "draw")].copy()
     is_a = d["winner"] == "A"
     for col in ("units", "survivors", "damage_dealt", "total_hp"):
@@ -141,9 +168,7 @@ def overview(ds: Dataset) -> None:
     line(f"Artifact records (rows):    {len(ds.artifact_rows)}")
     line(f"Battles with full results:  {int(b['complete'].sum())} ({pct(b['complete'].sum(), len(b))})")
     line(f"Battles with notes:         {int(b['notes'].notna().sum())}")
-
-    
-
+  
 def timeline(ds: Dataset) -> None:
     title("2. Timeline")
     b = ds.battles
@@ -155,7 +180,6 @@ def timeline(ds: Dataset) -> None:
     note("timestamps are stored in UTC.")
     subtitle("Battles per day (last 30 active days)")
     show(per_day.tail(30).rename_axis("date").reset_index())
-
 
 def outcomes(ds: Dataset) -> None:
     title("3. Outcomes and side balance")
@@ -213,8 +237,6 @@ def artifact_catalog(ds: Dataset) -> None:
     unused = table.loc[table["times_held"] == 0, "name"].tolist()
     line(f"\nArtifacts never used: {len(unused)} ({', '.join(unused[:10])}{', ...' if len(unused) > 10 else ''})" if unused else "")
 
-RANK_NAME = {rank: name for name, rank in ATTACK_SPEED_RANK.items()}
-
 def unit_ability_catalog(ds: Dataset) -> None:
     title("6. Unit ability catalog")
     unit_info = ds.units[["unit_id", "name", "atk", "speed", "health", "attack_speed_rank"]]
@@ -251,7 +273,7 @@ def unit_ability_catalog(ds: Dataset) -> None:
     table = (ds.abilities.merge(unit_stats, on="ability_id", how="left").merge(usage, on="ability_id", how="left"))
     for col in ("unit_count", "battles", "total_deployed"):
         table[col] = table[col].fillna(0).astype(int)
-    table = table.sort_values(["unit_count", "name"], ascending=[False, True])
+    table = table.sort_values("total_deployed", ascending=False)
     show(table.rename(columns={"name": "ability"})[["ability", "unit_count", "mean_atk", "mean_speed", "median_attack_speed","mean_health", "battles", "total_deployed"]])
 
     unused = table.loc[table["unit_count"] == 0, "name"].tolist()
@@ -374,10 +396,8 @@ def single_unit_matchups(ds: Dataset) -> None:
 def unit_performance(ds: Dataset) -> None:
     title("10. Unit battle performance")
     b = ds.battles
-    mask = (b["a_units"] > 1) & (b["b_units"] > 1) 
-    real_ids = b.loc[mask, "battle_id"]
+    real_ids = _real_battle_ids(ds)
     line(f"Qualifying battles: {len(real_ids)} of {len(ds.battles)} ({pct(len(real_ids), len(ds.battles))})")
-
     rows = ds.unit_rows[ds.unit_rows["battle_id"].isin(real_ids)]
     if rows.empty:
         line("No qualifying battles yet.")
@@ -428,9 +448,17 @@ def unit_performance(ds: Dataset) -> None:
 
 def artifact_performance(ds: Dataset) -> None:
     title("11. Artifact performance")
-    ar = ds.artifact_rows
+    b = ds.battles
+    real_ids = _real_battle_ids(ds)
+    line(f"Qualifying battles (real, multi-unit): {len(real_ids)} of {len(b)} ({pct(len(real_ids), len(b))})")
+    if real_ids.empty:
+        line("No qualifying battles yet.")
+        return
+    ar = ds.artifact_rows[ds.artifact_rows["battle_id"].isin(real_ids)]
+    sides = ds.sides[ds.sides["battle_id"].isin(real_ids)]
+
     if ar.empty:
-        line("No artifacts have been used in a recorded battle yet.")
+        line("No artifacts have been used in a qualifying battle yet.")
     else:
         t = ar.groupby("artifact_id").agg(
             appearances=("battle_id", "count"),
@@ -449,13 +477,14 @@ def artifact_performance(ds: Dataset) -> None:
              "so the average side wins 50% by construction.")
 
     subtitle("Win rate by number of artifacts an army holds")
-    by_count = ds.sides.groupby("artifacts")["result"].agg(
+    by_count = sides.groupby("artifacts")["result"].agg(
         armies="count",
         wins=lambda r: int((r == "win").sum()),
         losses=lambda r: int((r == "loss").sum()),
         draws=lambda r: int((r == "draw").sum()),
     ).reset_index()
     show(add_win_rate(by_count))
+    note("Only battles where both armies deploy more than one unit are counted, so the 1v1 baseline battles (which never hold artifacts) don't inflate the 0-artifact row.")
 
 def combinations_section(ds: Dataset) -> None:
     title("12. Combinations")
@@ -509,7 +538,7 @@ def combinations_section(ds: Dataset) -> None:
 
 def battle_results(ds: Dataset) -> None:
     title("13. How battles end (survivors and damage)")
-    d = _decisive_results(ds)
+    d = _decisive_results(ds) # filter for only win/loss & add derive survivors and damage dealt
     draws = ds.battles[ds.battles["complete"] & (ds.battles["winner"] == "draw")]
     line(f"Decisive battles with full results: {len(d)}   Draws with full results: {len(draws)}")
     if d.empty:
@@ -532,15 +561,33 @@ def battle_results(ds: Dataset) -> None:
     line()
     line(f"Winner dealt more damage than loser:  {pct((d['win_damage_dealt'] > d['lose_damage_dealt']).sum(), len(d))}")
     line(f"Loser was fully eliminated (0 left):   {pct((d['lose_survivors'] == 0).sum(), len(d))}")
-
-    line()
-    line(f"Winner kept 25%+ of its army:          {pct((d['win_survivor_pct'] >= 25).sum(), len(d))}")
-    line(f"Winner kept 50%+ of its army:          {pct((d['win_survivor_pct'] >= 50).sum(), len(d))}")
-    line(f"Winner kept 75%+ of its army:          {pct((d['win_survivor_pct'] >= 75).sum(), len(d))}")
+    
     subtitle("Winner's survivor % (margin of victory)")
     show(d["win_survivor_pct"].describe(percentiles=[0.25, 0.5, 0.75]).to_frame().T)
-    note("'Damage dealt / enemy total HP' above 1.0 means overkill (damage that "
-         "exceeded the enemy's total health, or hit already-dying units).")
+    line()
+    line(f"Winner kept 25%+ of its army:        {pct((d['win_survivor_pct'] >= 25).sum(), len(d))}")
+    line(f"Winner kept 50%+ of its army:        {pct((d['win_survivor_pct'] >= 50).sum(), len(d))}")
+    line(f"Winner kept 75%+ of its army:        {pct((d['win_survivor_pct'] >= 75).sum(), len(d))}")
+
+    subtitle("Loser's survivor % (margin of victory)")
+    show(d["lose_survivor_pct"].describe(percentiles=[0.25, 0.5, 0.75]).to_frame().T)
+
+    subtitle("Winner's damage dealt / enemy total HP (overkill)")
+    show(d["win_dmg_vs_enemy_hp"].describe(percentiles=[0.25, 0.5, 0.75]).to_frame().T)
+    line()
+    line(f"Winner dealt less than 100% of enemy HP:      {pct((d['win_dmg_vs_enemy_hp'] < 1.0).sum(), len(d))}")
+    line(f"Winner dealt exactly 100% of enemy HP:        {pct((d['win_dmg_vs_enemy_hp'] == 1.0).sum(), len(d))}")
+    line(f"Winner dealt more than 100% of enemy HP:      {pct((d['win_dmg_vs_enemy_hp'] > 1.0).sum(), len(d))}")
+
+    subtitle("Loser's damage dealt / enemy total HP (overkill)")
+    show(d["lose_dmg_vs_enemy_hp"].describe(percentiles=[0.25, 0.5, 0.75]).to_frame().T)
+    line()
+    line(f"Loser dealt less than 100% of enemy HP:      {pct((d['lose_dmg_vs_enemy_hp'] < 1.0).sum(), len(d))}")
+    line(f"Loser dealt exactly 100% of enemy HP:        {pct((d['lose_dmg_vs_enemy_hp'] == 1.0).sum(), len(d))}")
+    line(f"Loser dealt more than 100% of enemy HP:      {pct((d['lose_dmg_vs_enemy_hp'] > 1.0).sum(), len(d))}")
+
+    line()
+    note("'Damage dealt / enemy total HP' above 1.0 means overkill (damage that exceeded the enemy's total health).")
     note("These columns are OUTCOMES. Do not use them as features to predict the winner.")
 
 def consistency(ds: Dataset) -> None:
@@ -602,7 +649,7 @@ def consistency(ds: Dataset) -> None:
 def data_quality(ds: Dataset) -> None:
     title("15. Data quality checks")
     b = ds.battles
-    d = _decisive_results(ds)
+    d = _decisive_results(ds, False)
     done = b[b["complete"]]
     draws = done[done["winner"] == "draw"]
 
