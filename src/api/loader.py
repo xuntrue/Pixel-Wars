@@ -25,6 +25,8 @@ class Dataset:
     sides: pd.DataFrame          # one row per (battle, side)
     unit_rows: pd.DataFrame      # one row per (battle, side, unit group)
     artifact_rows: pd.DataFrame  # one row per (battle, side, artifact)
+    abilities: pd.DataFrame      # catalog: ability_id, name
+    unit_abilities: pd.DataFrame # unit_id, ability_id (which unit has which ability)
     excluded: int = 0            # battles dropped because of SUSPICIOUS_IDS
 
 # --- Helper function(s) ---
@@ -43,17 +45,18 @@ def _sum_known(s: pd.Series) -> float:
 
 # --- Entry point ---
 def load_dataset(conn) -> Dataset:
-    units = pd.read_sql_query(
-        "SELECT id AS unit_id, name, damage AS atk, speed, attack_speed, health FROM units",
-        conn)
+    units = pd.read_sql_query("SELECT id AS unit_id, name, damage AS atk, speed, attack_speed, health FROM units", conn)
     units["attack_speed_rank"] = units["attack_speed"].map(ATTACK_SPEED_RANK) # Ordinal mapping
 
-    artifacts = pd.read_sql_query(
-        "SELECT id AS artifact_id, name FROM artifacts", conn)
-    battles = pd.read_sql_query(
-        "SELECT id AS battle_id, timestamp, winner, notes FROM battles", conn)
+    artifacts = pd.read_sql_query("SELECT id AS artifact_id, name FROM artifacts", conn)
+
+    battles = pd.read_sql_query("SELECT id AS battle_id, timestamp, winner, notes FROM battles", conn)
     bu = pd.read_sql_query("SELECT * FROM battle_units", conn)
     ba = pd.read_sql_query("SELECT * FROM battle_artifacts", conn)
+
+    abilities = pd.read_sql_query("SELECT id AS ability_id, name FROM abilities", conn)
+    unit_abilities = pd.read_sql_query("SELECT unit_id, ability_id FROM unit_abilities", conn)
+    unit_abilities = unit_abilities.astype({"unit_id": "int64", "ability_id": "int64"})
 
     # Normalise dtypes (empty tables and all-NULL columns come back as 'object').
     battles["timestamp"] = pd.to_datetime(battles["timestamp"], errors="coerce")
@@ -133,7 +136,7 @@ def load_dataset(conn) -> Dataset:
         battles[f"d_{metric}"] = battles[f"a_{metric}"] - battles[f"b_{metric}"]
     battles = battles.sort_values(["timestamp", "battle_id"]).reset_index(drop=True)
 
-    return Dataset(units, artifacts, battles, sides, bu, ba, excluded)
+    return Dataset(units, artifacts, battles, sides, bu, ba, abilities, unit_abilities, excluded)
 
 def load_default_dataset() -> Dataset:
     """ Open data/pixel_wars.db through src.api.database, load everything, close """

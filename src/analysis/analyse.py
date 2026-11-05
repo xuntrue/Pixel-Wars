@@ -23,9 +23,19 @@ COMPARE = [
 ]
 
 # --- Helper function(s) ---
+def _median_attack_speed(ranks: pd.Series) -> str:
+    ranks = ranks.dropna()
+    if ranks.empty:
+        return "(not set)"
+    median = float(ranks.median())
+    low = int(median)
+    high = low if median == low else low + 1
+    return RANK_NAME[low] if low == high else f"{RANK_NAME[low]} / {RANK_NAME[high]}" # case even count
+
 def _decisive_results(ds: Dataset) -> pd.DataFrame:
-    """Decisive battles with full results, with winner_/loser_ columns."""
+    """ Decisive battles with full results, with winner_/loser_ columns """
     b = ds.battles
+    # mask = (b["a_units"] > 1) & (b["b_units"] > 1) # Add filter
     d = b[b["complete"] & (b["winner"] != "draw")].copy()
     is_a = d["winner"] == "A"
     for col in ("units", "survivors", "damage_dealt", "total_hp"):
@@ -60,56 +70,6 @@ def _heuristic_table(ds: Dataset) -> pd.DataFrame:
         })
     return pd.DataFrame(rows)
 
-def unit_matchup_matrix(ds: Dataset) -> None:
-    """ Baseline: how often has each unit type faced each other unit type, one on one? """
-    subtitle("Unit type matchups: single-unit baseline (battle counts)")
-    b = ds.battles
-
-    clean = (
-        (b["a_types"] == 1) & (b["b_types"] == 1)             # one unit type per army
-        & (b["a_artifacts"] == 0) & (b["b_artifacts"] == 0)   # no artifacts      
-        & (b["a_units"] == 1) & (b["b_units"] == 1)           # only one unit deployed per army
-    )
-    ids = b.loc[clean, "battle_id"]
-    line(f"Qualifying battles: {len(ids)} of {len(b)}")
-
-    # Rows and columns: every unit type in the catalog, so unseen matchups show up as 0.
-    names = ds.units.sort_values("name").set_index("unit_id")["name"]
-    n = len(names)
-    if n == 0:
-        return
-    matrix = pd.DataFrame(0, index=names.index, columns=names.index)
-
-    if len(ids):
-        pairs = (ds.unit_rows[ds.unit_rows["battle_id"].isin(ids)]
-                 .pivot(index="battle_id", columns="side", values="unit_id")
-                 .dropna())
-        for a_id, b_id in zip(pairs["A"].astype(int), pairs["B"].astype(int)):
-            matrix.loc[a_id, b_id] += 1
-            if a_id != b_id:
-                matrix.loc[b_id, a_id] += 1  # side-swap: the same battle seen from the other side
-
-    show(matrix.rename(index=names, columns=names), index=True)
-
-    total_cells = n * n
-    zero_cells = int((matrix.values == 0).sum())
-    seen_cells = total_cells - zero_cells
-    line()
-    line(f"Matrix cells with 0 battles (matchups not yet seen): {zero_cells} of {total_cells}")
-    line(f"Matchups seen: {seen_cells} of {total_cells} cells ({pct(seen_cells, total_cells)})")
-
-    # X vs Y and Y vs X are the same fight, so also count each pair once.
-    diagonal_seen = int((matrix.values.diagonal() > 0).sum())
-    seen_pairs = (seen_cells + diagonal_seen) // 2
-    total_pairs = n * (n + 1) // 2
-    line(f"Distinct matchups seen (X vs Y = Y vs X): {seen_pairs} of {total_pairs} "
-         f"({pct(seen_pairs, total_pairs)})")
-
-    note("Each cell is the number of qualifying battles between those two unit types. "
-         "The matrix is symmetric because every battle is counted from both sides (side-swap augmentation).")
-    note("The diagonal is mirror matches (the same unit type on both sides)."
-         " A mirror  battle fills its cell once, not twice. The total-cell numbers include the diagonal.")
-
 def _cooccurrence(rows: pd.DataFrame, id_col: str, result_of: dict) -> dict:
     """Pairs of items on the same side -> win/loss/draw tallies."""
     key_for = {"win": "wins", "loss": "losses", "draw": "draws"}
@@ -130,7 +90,6 @@ def _pair_frame(stats: dict, first_names: pd.Series, second_names: pd.Series,
     if not rows:
         return pd.DataFrame()
     return add_win_rate(pd.DataFrame(rows))
-
 
 def _most_common(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
@@ -213,28 +172,33 @@ def outcomes(ds: Dataset) -> None:
              f"(95% CI {100 * low:.1f}% to {100 * high:.1f}%)")
         note("if A/B assignment is arbitrary, ~50% is expected; a persistent gap may mean you tend to put the same kind of army on one side.")
 
-def catalog_usage(ds: Dataset) -> None:
-    title("4. Catalog and usage")
+def unit_catalog(ds: Dataset) -> None:
+    title("4. Unit catalog")
     subtitle("Unit catalog: stat summary")
     show(ds.units[["atk", "speed", "health"]].describe(percentiles=[0.25, 0.5, 0.75]).T, index=True)
+
     subtitle("Unit types: stats and usage (sorted by total deployed)")
     usage = ds.unit_rows.groupby("unit_id").agg(
         battles=("battle_id", "nunique"),
         total_deployed=("count", "sum"),
-        avg_deployed=("count", "mean"),
+        mean_deployed=("count", "mean"),
+        median_deployed=("count", "median"),
     ).reset_index()
     table = ds.units.merge(usage, on="unit_id", how="left")
     table[["battles", "total_deployed"]] = table[["battles", "total_deployed"]].fillna(0).astype(int)
-    table = table.sort_values("total_deployed", ascending=False)
+    table = table.sort_values(
+        "total_deployed", ascending=False # sort by most deployed units
+    )
     show(table.drop(columns=["unit_id", "attack_speed_rank"]))
     unused = table.loc[table["battles"] == 0, "name"].tolist()
-    line(f"\nUnit types never used: {len(unused)}"
-         + (f"  ({', '.join(unused[:30])}{', ...' if len(unused) > 30 else ''})" if unused else ""))
+    line(f"\nUnit types never used: {len(unused)} ({', '.join(unused[:20])}{', ...' if len(unused) > 20 else ''})" if unused else "")
 
     subtitle("Attack speed mix across the unit catalog")
     mix = ds.units["attack_speed"].fillna("(not set)").value_counts().rename_axis("attack_speed")
     show(mix.reset_index(name="unit_types"))
 
+def artifact_catalog(ds: Dataset) -> None:
+    title("5. Artifact catalog")
     subtitle("Artifacts: usage (sorted by times held)")
     if ds.artifact_rows.empty:
         table = ds.artifacts.assign(battles=0, times_held=0)
@@ -247,10 +211,85 @@ def catalog_usage(ds: Dataset) -> None:
     table = table.sort_values("times_held", ascending=False)
     show(table.drop(columns="artifact_id"))
     unused = table.loc[table["times_held"] == 0, "name"].tolist()
-    line(f"\nArtifacts never used: {len(unused)}" + (f"  ({', '.join(unused[:30])}{', ...' if len(unused) > 30 else ''})" if unused else ""))
+    line(f"\nArtifacts never used: {len(unused)} ({', '.join(unused[:10])}{', ...' if len(unused) > 10 else ''})" if unused else "")
+
+RANK_NAME = {rank: name for name, rank in ATTACK_SPEED_RANK.items()}
+
+def unit_ability_catalog(ds: Dataset) -> None:
+    title("6. Unit ability catalog")
+    unit_info = ds.units[["unit_id", "name", "atk", "speed", "health", "attack_speed_rank"]]
+    unit_names = unit_info[["unit_id", "name"]]
+    deployments = ds.unit_rows[["battle_id", "unit_id", "count"]]
+
+    if ds.abilities.empty:
+        line("No abilities defined yet.")
+        return
+
+    links = (ds.unit_abilities
+             .merge(unit_info, on="unit_id")
+             .merge(ds.abilities.rename(columns={"name": "ability"}), on="ability_id"))
+
+    subtitle("Abilities assigned to each unit (alphabetical)")
+    abilities_by_unit = (links.groupby("unit_id")["ability"].agg(lambda s: ", ".join(sorted(s))).to_dict())
+    unit_table = unit_names.sort_values("name", key=lambda s: s.str.lower()).copy()
+    unit_table["abilities"] = unit_table["unit_id"].map(lambda uid: abilities_by_unit.get(uid, "(none)"))
+    show(unit_table.rename(columns={"name": "unit"})[["unit", "abilities"]])
+
+    subtitle("Units grouped by ability")
+    unit_stats = links.groupby("ability_id").agg(
+        unit_count=("unit_id", "nunique"),
+        mean_atk=("atk", "mean"),
+        mean_speed=("speed", "mean"),
+        median_attack_speed=("attack_speed_rank", _median_attack_speed),
+        mean_health=("health", "mean"),
+    ).reset_index()
+    usage = (links[["ability_id", "unit_id"]]
+             .merge(deployments, on="unit_id")
+             .groupby("ability_id")
+             .agg(battles=("battle_id", "nunique"), total_deployed=("count", "sum"))
+             .reset_index())
+    table = (ds.abilities.merge(unit_stats, on="ability_id", how="left").merge(usage, on="ability_id", how="left"))
+    for col in ("unit_count", "battles", "total_deployed"):
+        table[col] = table[col].fillna(0).astype(int)
+    table = table.sort_values(["unit_count", "name"], ascending=[False, True])
+    show(table.rename(columns={"name": "ability"})[["ability", "unit_count", "mean_atk", "mean_speed", "median_attack_speed","mean_health", "battles", "total_deployed"]])
+
+    unused = table.loc[table["unit_count"] == 0, "name"].tolist()
+    line(f"\nAbilities not assigned to any unit: {len(unused)}  ({', '.join(unused[:10])}{', ...' if len(unused) > 10 else ''})" if unused else "")
+
+    subtitle("Units grouped by number of abilities")
+    counts = ds.unit_abilities.groupby("unit_id").size().reset_index(name="ability_count")
+    per_unit = unit_info.merge(counts, on="unit_id", how="left")
+    per_unit["ability_count"] = per_unit["ability_count"].fillna(0).astype(int)
+    unit_stats = per_unit.groupby("ability_count").agg(
+        unit_count=("unit_id", "count"),
+        mean_atk=("atk", "mean"),
+        mean_speed=("speed", "mean"),
+        mean_health=("health", "mean"),
+    ).reset_index()
+    usage = (per_unit[["unit_id", "ability_count"]]
+             .merge(deployments, on="unit_id")
+             .groupby("ability_count")
+             .agg(battles=("battle_id", "nunique"), total_deployed=("count", "sum"))
+             .reset_index())
+    table = unit_stats.merge(usage, on="ability_count", how="left")
+    for col in ("battles", "total_deployed"):
+        table[col] = table[col].fillna(0).astype(int)
+    show(table[["ability_count", "unit_count", "mean_atk", "mean_speed", "mean_health", "battles", "total_deployed"]])
+
+    note("mean_atk, mean_speed and mean_health average over unit types (each type counts once, not weighted by how often it is deployed).")
+    note("median_attack_speed 'X / Y' means the median falls between those two categories. Units with no attack speed are ignored.")
+    note("battles = distinct battles in which at least one deployed unit, on either side, has "
+         "that ability (or that number of abilities). total_deployed = every unit of those "
+         "types deployed across all battles.")
+    note("In the by-ability table a unit with several abilities appears in each row, so its "
+         "numbers don't add up to overall totals. The by-number table splits units exactly "
+         "once, so its totals do.")
+    note("Both usage columns include the 1v1 baseline battles, which add a large, uniform "
+         "number of appearances per unit.")
 
 def army_composition(ds: Dataset) -> None:
-    title("5. Army composition")
+    title("7. Army composition")
     s = ds.sides
     cols = ["units", "types", "total_hp", "total_atk", "atk_x_rate", "avg_speed", "avg_attack_speed", "artifacts"]
 
@@ -271,7 +310,7 @@ def army_composition(ds: Dataset) -> None:
     note("'atk_x_rate' = attack stat x attack-speed rank (1-5) x count, an ordinal proxy for damage rate, not real attacks per second. 'avg_speed' is movement speed.")
 
 def strength_vs_outcome(ds: Dataset) -> None:
-    title("6. Does the 'stronger' army win?")
+    title("8. Does the 'stronger' army win?")
     d = ds.battles[ds.battles["winner"] != "draw"]
     if d.empty:
         line("No decisive battles yet.")
@@ -286,10 +325,65 @@ def strength_vs_outcome(ds: Dataset) -> None:
     note("'skipped' = battles where the two armies were tied on that metric. "
          "accuracy_pct is your first benchmark: a trained model should beat the best of these.")
 
+def single_unit_matchups(ds: Dataset) -> None:
+    title("9. Single Unit Matchups")
+    b = ds.battles
+    clean = (
+        (b["a_types"] == 1) & (b["b_types"] == 1)             # one unit type per army
+        & (b["a_artifacts"] == 0) & (b["b_artifacts"] == 0)   # no artifacts      
+        & (b["a_units"] == 1) & (b["b_units"] == 1)           # only one unit deployed per army
+    )
+    ids = b.loc[clean, "battle_id"]
+    line(f"Qualifying battles: {len(ids)} of {len(b)} ({len(ids)/len(b):.2%})")
+    
+    subtitle("Unit type matchups: single-unit baseline (battle counts)")
+    # Rows and columns: every unit type in the catalog, so unseen matchups show up as 0
+    names = ds.units.sort_values("name").set_index("unit_id")["name"]
+    n = len(names)
+    if n == 0:
+        return
+    matrix = pd.DataFrame(0, index=names.index, columns=names.index)
+
+    if len(ids):
+        pairs = (ds.unit_rows[ds.unit_rows["battle_id"].isin(ids)]
+                 .pivot(index="battle_id", columns="side", values="unit_id")
+                 .dropna())
+        for a_id, b_id in zip(pairs["A"].astype(int), pairs["B"].astype(int)):
+            matrix.loc[a_id, b_id] += 1
+            if a_id != b_id:
+                matrix.loc[b_id, a_id] += 1  # side-swap: the same battle seen from the other side
+    #show(matrix.rename(index=names, columns=names), index=True)
+    
+    total_cells = n * n
+    zero_cells = int((matrix.values == 0).sum())
+    seen_cells = total_cells - zero_cells
+    line(f"Matrix cells with 0 battles (matchups not yet seen): {zero_cells} of {total_cells}")
+    line(f"Matchups seen: {seen_cells} of {total_cells} cells ({pct(seen_cells, total_cells)})")
+
+    # X vs Y and Y vs X are the same fight, so also count each pair once.
+    diagonal_seen = int((matrix.values.diagonal() > 0).sum())
+    seen_pairs = (seen_cells + diagonal_seen) // 2
+    total_pairs = n * (n + 1) // 2
+    line(f"Distinct matchups seen (X vs Y = Y vs X): {seen_pairs} of {total_pairs} ({pct(seen_pairs, total_pairs)})")
+    if False:
+        note("Each cell is the number of qualifying battles between those two unit types.")
+        note("The matrix is symmetric because every battle is counted from both sides (side-swap augmentation).")
+        note("The diagonal is mirror matches (the same unit type on both sides).")
+        note("A mirror battle fills its cell once, not twice. The total-cell numbers include the diagonal.")
 
 def unit_performance(ds: Dataset) -> None:
-    title("7. Unit performance")
-    t = ds.unit_rows.groupby("unit_id").agg(
+    title("10. Unit battle performance")
+    b = ds.battles
+    mask = (b["a_units"] > 1) & (b["b_units"] > 1) 
+    real_ids = b.loc[mask, "battle_id"]
+    line(f"Qualifying battles: {len(real_ids)} of {len(ds.battles)} ({pct(len(real_ids), len(ds.battles))})")
+
+    rows = ds.unit_rows[ds.unit_rows["battle_id"].isin(real_ids)]
+    if rows.empty:
+        line("No qualifying battles yet.")
+        return
+
+    t = rows.groupby("unit_id").agg(
         appearances=("battle_id", "count"),
         total_deployed=("count", "sum"),
         wins=("result", lambda r: int((r == "win").sum())),
@@ -312,16 +406,16 @@ def unit_performance(ds: Dataset) -> None:
     show(t[["name", "appearances", "total_deployed", "wins", "losses", "draws",
             "win_pct", "ci_low", "ci_high", "survival_pct", "dmg_per_unit",
             "dmg_per_unit_per_atk", "flag"]])
-    note("win_pct = share of decisive battles won by a side that deployed the unit "
-         "(95% Wilson CI). It is confounded: a unit that is always in strong armies "
-         "looks strong. Treat it as descriptive, not causal.")
-    note("survival_pct = survivors / deployed. dmg_per_unit = damage dealt by the group / "
-         "units deployed. dmg_per_unit_per_atk divides that by the unit's attack stat, "
-         "roughly 'how many attacks landed per unit'.")
+
+    note("Only battles where both armies deploy more than one unit are counted (see real_battle_ids), so the 1v1 baseline battles don't dominate.")
+    note("win_pct = share of decisive battles won by a side that deployed the unit (95% Wilson CI).")
+    note("It is confounded: a unit that is always in strong armies looks strong. Treat it as descriptive, not causal.")
+    note("survival_pct = survivors / deployed. dmg_per_unit = damage dealt by the group / units deployed.")
+    note("dmg_per_unit_per_atk divides that by the unit's attack stat, roughly 'how many attacks landed per unit'.")
     note(f"'low n' = fewer than {MIN_SAMPLE} decisive appearances; those rows sort last.")
 
     subtitle("Unit performance grouped by attack speed")
-    g = ds.unit_rows.assign(attack_speed=ds.unit_rows["attack_speed"].fillna("(not set)"))
+    g = rows.assign(attack_speed=rows["attack_speed"].fillna("(not set)"))
     by_speed = g.groupby("attack_speed").agg(
         appearances=("battle_id", "count"),
         wins=("result", lambda r: int((r == "win").sum())),
@@ -332,10 +426,8 @@ def unit_performance(ds: Dataset) -> None:
     by_speed = add_win_rate(by_speed).sort_values("order").drop(columns="order")
     show(by_speed)
 
-    unit_matchup_matrix(ds)
-
 def artifact_performance(ds: Dataset) -> None:
-    title("8. Artifact performance")
+    title("11. Artifact performance")
     ar = ds.artifact_rows
     if ar.empty:
         line("No artifacts have been used in a recorded battle yet.")
@@ -366,7 +458,7 @@ def artifact_performance(ds: Dataset) -> None:
     show(add_win_rate(by_count))
 
 def combinations_section(ds: Dataset) -> None:
-    title("9. Combinations")
+    title("12. Combinations")
     result_of = {(r.battle_id, r.side): r.result for r in ds.sides.itertuples()}
     unit_names = ds.units.set_index("unit_id")["name"]
     artifact_names = ds.artifacts.set_index("artifact_id")["name"]
@@ -416,7 +508,7 @@ def combinations_section(ds: Dataset) -> None:
     #     " and one battle feeds several rows, so rows aren't independent. Check ci_low / ci_high: a wide interval is weak evidence.")
 
 def battle_results(ds: Dataset) -> None:
-    title("10. How battles end (survivors and damage)")
+    title("13. How battles end (survivors and damage)")
     d = _decisive_results(ds)
     draws = ds.battles[ds.battles["complete"] & (ds.battles["winner"] == "draw")]
     line(f"Decisive battles with full results: {len(d)}   Draws with full results: {len(draws)}")
@@ -452,7 +544,7 @@ def battle_results(ds: Dataset) -> None:
     note("These columns are OUTCOMES. Do not use them as features to predict the winner.")
 
 def consistency(ds: Dataset) -> None:
-    title("11. Repeated matchups (is the game deterministic?)")
+    title("14. Repeated matchups (is the game deterministic?)")
     ur = ds.unit_rows.sort_values(["battle_id", "side", "unit_id"]).copy()
     ur["token"] = ur["unit_id"].astype(str) + "x" + ur["count"].astype(str)
     unit_sig = ur.groupby(["battle_id", "side"])["token"].agg(",".join).rename("units_sig")
@@ -508,7 +600,7 @@ def consistency(ds: Dataset) -> None:
 
 
 def data_quality(ds: Dataset) -> None:
-    title("12. Data quality checks")
+    title("15. Data quality checks")
     b = ds.battles
     d = _decisive_results(ds)
     done = b[b["complete"]]
@@ -541,7 +633,7 @@ def data_quality(ds: Dataset) -> None:
          "regeneration can all cause them). They are worth a second look if the counts are large.")
 
 def ml_readiness(ds: Dataset) -> None:
-    title("13. Machine-learning readiness")
+    title("16. Machine-learning readiness")
     d = ds.battles[ds.battles["winner"] != "draw"]
     n = len(d)
     seen_units = ds.unit_rows["unit_id"].nunique()
@@ -593,8 +685,10 @@ def analyse() -> None:
         print("No battles recorded yet. Record some battles first.")
         return
 
-    for section in (overview, timeline, outcomes, catalog_usage, army_composition,
-                    strength_vs_outcome, unit_performance, artifact_performance,
+    for section in (overview, timeline, outcomes, 
+                    unit_catalog, artifact_catalog, unit_ability_catalog,
+                    army_composition, strength_vs_outcome,
+                    single_unit_matchups, unit_performance, artifact_performance,
                     combinations_section, battle_results, consistency,
                     data_quality, ml_readiness):
         section(ds)
