@@ -3,7 +3,7 @@ from itertools import combinations
 import pandas as pd
 
 from src.api.database import get_connection, init_db
-from .loader import ATTACK_SPEED_RANK, Dataset, load_dataset
+from src.api.loader import ATTACK_SPEED_RANK, Dataset, load_dataset
 from .stats import add_win_rate, line, note, pct, show, subtitle, title, wilson
 
 TOP_N = 10        # length of the "top" lists for combinatorial tables

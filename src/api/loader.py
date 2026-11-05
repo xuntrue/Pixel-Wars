@@ -3,8 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from src.api.database import ATTACK_SPEEDS, get_connection, init_db
-
+from .database import ATTACK_SPEEDS, get_connection, init_db
 
 # Per-army aggregates that exist BEFORE the battle (usable as ML features).
 PRE_BATTLE_METRICS = ["units", "types", "total_hp", "total_atk", "atk_x_rate", "avg_speed", "avg_attack_speed", "artifacts"]
