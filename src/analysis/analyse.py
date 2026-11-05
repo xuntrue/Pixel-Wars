@@ -34,17 +34,21 @@ def _median_attack_speed(ranks: pd.Series) -> str:
     high = low if median == low else low + 1
     return RANK_NAME[low] if low == high else f"{RANK_NAME[low]} / {RANK_NAME[high]}" # case even count
 
+def _baseline_battle_ids(ds: Dataset) -> pd.Series:
+    """ Battle ids of 'baseline' battles, which leaves out the 1v1 baseline battles """
+    b = ds.battles
+    mask = (
+        ((b["a_types"] == 1) & (b["b_types"] == 1)           # one unit type
+        & (b["a_units"] == 1) & (b["b_units"] == 1)          # one unit per army
+        & (b["a_artifacts"] == 0) & (b["b_artifacts"] == 0)) # no artifacts
+    )
+    return b.loc[mask, "battle_id"]
+
 def _real_battle_ids(ds: Dataset) -> pd.Series:
     """ Battle ids of 'real' battles, which leaves out the 1v1 baseline battles """
     b = ds.battles
     mask = (
         (b["a_units"] > 1) & (b["b_units"] > 1)  # more than one unit deployed per army
-
-        # Alternative: exclude only exact baseline battles (one unit type, one unit
-        # per army, no artifacts), which also keeps real battles with a single-unit army:
-        # ~((b["a_types"] == 1) & (b["b_types"] == 1)
-        #   & (b["a_units"] == 1) & (b["b_units"] == 1)
-        #   & (b["a_artifacts"] == 0) & (b["b_artifacts"] == 0))
     )
     return b.loc[mask, "battle_id"]
 
@@ -392,6 +396,39 @@ def single_unit_matchups(ds: Dataset) -> None:
         note("The matrix is symmetric because every battle is counted from both sides (side-swap augmentation).")
         note("The diagonal is mirror matches (the same unit type on both sides).")
         note("A mirror battle fills its cell once, not twice. The total-cell numbers include the diagonal.")
+    line()
+
+    b = ds.battles
+    real_ids = _baseline_battle_ids(ds)
+    line(f"Qualifying battles: {len(real_ids)} of {len(ds.battles)} ({pct(len(real_ids), len(ds.battles))})")
+    rows = ds.unit_rows[ds.unit_rows["battle_id"].isin(real_ids)]
+    if rows.empty:
+        line("No qualifying battles yet.")
+        return
+
+    t = rows.groupby("unit_id").agg(
+        appearances=("battle_id", "count"),
+        total_deployed=("count", "sum"),
+        wins=("result", lambda r: int((r == "win").sum())),
+        losses=("result", lambda r: int((r == "loss").sum())),
+        draws=("result", lambda r: int((r == "draw").sum())),
+        remaining=("remaining", "sum"),
+        deployed_known=("deployed_known", "sum"),
+        damage=("damage_dealt", "sum"),
+        atk=("atk", "first"),
+    ).reset_index()
+    known = t["deployed_known"].where(t["deployed_known"] > 0)
+    t["survival_pct"] = 100 * t["remaining"] / known
+    t["dmg_per_unit"] = t["damage"] / known
+    t["dmg_per_unit_per_atk"] = t["dmg_per_unit"] / t["atk"].where(t["atk"] > 0)
+    t = add_win_rate(t.merge(ds.units[["unit_id", "name"]], on="unit_id"))
+    t["low_n"] = (t["wins"] + t["losses"]) < MIN_SAMPLE
+    t["flag"] = t["low_n"].map({True: "low n", False: ""})
+    t = t.sort_values(["low_n", "win_pct"], ascending=[True, False])
+
+    show(t[["name", "appearances", "total_deployed", "wins", "losses", "draws",
+            "win_pct", "ci_low", "ci_high", "survival_pct", "dmg_per_unit",
+            "dmg_per_unit_per_atk", "flag"]])
 
 def unit_performance(ds: Dataset) -> None:
     title("10. Unit battle performance")
