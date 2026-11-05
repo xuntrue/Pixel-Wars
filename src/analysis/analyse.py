@@ -6,7 +6,7 @@ from src.api.database import get_connection, init_db
 from .loader import ATTACK_SPEED_RANK, Dataset, load_dataset
 from .stats import add_win_rate, line, note, pct, show, subtitle, title, wilson
 
-TOP_N = 5        # length of the "top" lists for combinatorial tables
+TOP_N = 10        # length of the "top" lists for combinatorial tables
 MIN_SAMPLE = 50  # fewer decisive appearances than this -> flagged "low n"
 
 # (column suffix, label) for "does the stronger army win?"
@@ -440,7 +440,11 @@ def battle_results(ds: Dataset) -> None:
     line()
     line(f"Winner dealt more damage than loser:  {pct((d['win_damage_dealt'] > d['lose_damage_dealt']).sum(), len(d))}")
     line(f"Loser was fully eliminated (0 left):   {pct((d['lose_survivors'] == 0).sum(), len(d))}")
+
+    line()
+    line(f"Winner kept 25%+ of its army:          {pct((d['win_survivor_pct'] >= 25).sum(), len(d))}")
     line(f"Winner kept 50%+ of its army:          {pct((d['win_survivor_pct'] >= 50).sum(), len(d))}")
+    line(f"Winner kept 75%+ of its army:          {pct((d['win_survivor_pct'] >= 75).sum(), len(d))}")
     subtitle("Winner's survivor % (margin of victory)")
     show(d["win_survivor_pct"].describe(percentiles=[0.25, 0.5, 0.75]).to_frame().T)
     note("'Damage dealt / enemy total HP' above 1.0 means overkill (damage that "
