@@ -12,11 +12,10 @@
 
 ## 1. Goal and the game
 
-**Pixel Wars** is a browser auto-battler. Games take about 3 minutes. In the shop phase you buy units
-and artifacts, then the armies fight automatically. Surviving units carry over to the next round, where
-you can add units, artifacts and upgrades. Winning 3 regular battles unlocks a PvP arena.
+**Pixel Wars** is a browser auto-battler. You assemble armies of units and artifacts, then the armies fight automatically.
+Surviving units carry over to the next round, where you can add units, artifacts and upgrades.
 
-**Project goal:** given two teams, predict the probability that each team wins.
+**Project goal:** Given two teams, predict the probability that each team wins.
 
 - An **army** is X units of each of N unit types. There is no limit on units per type, so the space of
   possible compositions is effectively infinite.
@@ -76,23 +75,38 @@ Key facts:
   drops obsolete columns).
 
 ## 4. Repository layout
-
 ```
-data/
-  pixel_wars.db
-  backups/                  # timestamped DB copies made by clear-battles
-  models/win_model.joblib   # written by train (if a model beat the baselines)
-notes/unit_types.tex        # LaTeX notes template
-src/
-  main.py                   # command dispatcher + window launcher + clear_all_battles()
-  api/database.py
-  catalog/    units.py  artifacts.py  abilities.py  unit_abilities.py
-  battles/    battles.py  battle_units.py  battle_artifacts.py
-  ui/         army_panel.py  record_battle_tab.py  baseline_tab.py  record_window.py
-              units_tab.py  artifacts_tab.py  abilities_tab.py  unit_abilities_tab.py
-              catalog_window.py      # (old main_window.py may be deleted)
-  analysis/   loader.py  stats.py  analyse.py
-  modeling/   features.py  models.py  evaluate.py  train.py
+├── data/
+│    ├── pixel_wars.db
+│    └── backups/            # timestamped DB copies made by clear-battles
+├── models/
+├── notes/unit_types.tex        # LaTeX notes template
+└── src/
+    ├── main.py  # command dispatcher + window launcher + clear_all_battles()
+    ├── api/
+    │   ├── database.py 
+    │   └── loader.py
+    ├── catalog/
+    │   ├── units.py
+    │   ├── artifacts.py
+    │   ├── abilities.py 
+    │   └── unit_abilities.py
+    ├── battles/
+    │   ├──battles.py
+    │   ├──battle_units.py
+    │   └──battle_artifacts.py
+    ├── ui/
+    │   ├── army_panel.py
+    │   ├── record_window.py record_battle_tab.py  baseline_tab.py
+    │   └── catalog_window.py units_tab.py  artifacts_tab.py  abilities_tab.py  unit_abilities_tab.py 
+    ├── analysis/
+    │   ├── stats.py
+    │   └── analyse.py
+    └── modeling/
+        ├── features.py
+        ├── models.py
+        ├── evaluate.py
+        └── train.py
 ```
 
 `main.py` commands (default `record`): `record`, `catalog`, `analyse`, `train`, `clear-battles`.
