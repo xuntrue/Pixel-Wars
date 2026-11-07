@@ -1,10 +1,10 @@
-import numpy as np
 from sklearn.dummy import DummyClassifier
 from sklearn.linear_model import LogisticRegressionCV
 from sklearn.model_selection import StratifiedKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+import numpy as np
 
 def logistic(fit_intercept: bool) -> Pipeline:
     """
@@ -21,19 +21,21 @@ def logistic(fit_intercept: bool) -> Pipeline:
             scoring="neg_log_loss",
             fit_intercept=fit_intercept,
             max_iter=2000,
+            l1_ratios=(0,),               # pure L2 (ridge), stated explicitly
+            use_legacy_attributes=True,   # keep clf.C_[0] and clf.coef_[0] as train.py uses them
         )),
     ])
 
 
 # (name, model factory or None, feature set or None)
 CANDIDATES = [
-    ("coin flip (0.5)", None, None),
+    #("coin flip (0.5)", None, None),
     ("base rate (A win share)", lambda: DummyClassifier(strategy="prior"), "hp_only"),
-    ("logreg [hp_only]", lambda: logistic(False), "hp_only"),
-    ("logreg [size_only]", lambda: logistic(False), "size_only"),
-    ("logreg [core]", lambda: logistic(False), "core"),
-    ("logreg [core+rates]", lambda: logistic(False), "core+rates"),
-    ("logreg [all]", lambda: logistic(False), "all"),
+    #("logreg [hp_only]", lambda: logistic(False), "hp_only"),
+    #("logreg [size_only]", lambda: logistic(False), "size_only"),
+    #("logreg [core]", lambda: logistic(False), "core"),
+    #("logreg [core+rates]", lambda: logistic(False), "core+rates"),
+    #("logreg [all]", lambda: logistic(False), "all"),
     ("logreg+intercept [all]", lambda: logistic(True), "all"),
 ]
 BASELINES = {"coin flip (0.5)", "base rate (A win share)"}

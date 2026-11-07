@@ -1,0 +1,132 @@
+==============================================================================
+ 1. LOADING DATASET
+==============================================================================
+  Loaded 1452 battles from C:\Users\xuntr\source\repos\xuntrue\Pixel-Wars\data\pixel_wars.db
+
+----- All Battles Records -----
+   battle_id           timestamp winner
+           1 2026-11-02 09:09:26      B
+           2 2026-11-02 09:10:48      A
+           3 2026-11-02 09:12:16      A
+           4 2026-11-02 09:13:51      A
+           5 2026-11-02 09:15:53      A
+     . . .
+
+   battle_id           timestamp winner
+        1448 2026-11-06 18:14:37      A
+        1449 2026-11-06 18:16:12      A
+        1450 2026-11-06 18:17:47      A
+        1451 2026-11-06 18:19:40      A
+        1452 2026-11-06 18:22:05      B
+  Note: Showing 10 of 1452 battles.
+
+----- Example battle record -----
+  Battle #1452 | 2026-11-06 18:22:05 | winner: B
+
+----- Army A -----
+          name  count  remaining  damage_dealt  health  speed attack_speed
+           Axe     27          0        126.00   70.00   4.00         Fast
+          Igor     11          0        392.00  100.00   4.00         Fast
+           UFO     10          0        224.00  240.00   4.00       Medium
+  Fiery Knight      9          0      1,036.00  180.00  10.00    Very Fast
+        Hunter      6          0         53.00   10.00   3.00    Very Slow
+  Artifacts: Angel Of Death, Bombs Away, Seeing Ghosts, Stronghold
+
+----- Army B (winner) -----
+          name  count  remaining  damage_dealt  health  speed attack_speed
+       Serpant     42          0          0.00   20.00   5.00         Fast
+         Jello     18         18         20.00  200.00   5.00       Medium
+       Unicorn     12          2      1,262.00   60.00  10.00         Fast
+  Fiery Knight      9          7      4,179.00  180.00  10.00    Very Fast
+          Yeti      4          3        325.00  100.00   6.00         Fast
+         Draco      2          1        463.00  200.00   9.00       Medium
+  Artifacts: Potpourri, Speed Runner, Trojan Horse
+
+==============================================================================
+ 2. BUILDING FEATURES
+==============================================================================
+  Features are built from the armies and artifacts present before the battle, so they can be used to predict the outcome.
+
+  Building features. . .
+  Features built for 1423 decisive battles.
+
+----- Showing feature values for the first 10 battles -----
+   battle_id  y                                                           matchup  log_hp_ratio  log_atk_ratio  log_size_ratio  log_atk_rate_ratio  attack_speed_diff  move_speed_diff  artifact_diff
+           1  0                                                5x14| vs 7x4,12x3|         -1.12          -0.87            0.69               -0.08               1.86            -3.43           0.00
+           2  1                                              2x8,4x5| vs 6x7,8x5|          0.39           0.20           -0.08               -0.07              -1.75            -2.35           0.00
+           3  1                                       5x14,8x5| vs 5x9,8x3,12x9|6          0.42           0.48            0.10                0.09              -1.17             1.71           1.00
+           4  1                              4x13,7x26,13x5| vs 5x8,8x1,19x9|6,18          0.03          -1.18           -0.89               -1.16               0.29            -2.55           2.00
+           5  1                     9x18,17x5,27x4| vs 9x3,12x16,19x9,22x3|1,6,18          0.42           0.61            0.14                0.59               0.21             2.42           3.00
+           6  1 6x32,8x10,28x2,31x5,32x15|3 vs 9x13,12x10,19x9,22x3,25x7|1,4,6,18          0.74          -0.26           -0.42               -0.05               0.42             2.23           3.00
+           7  1                                              3x7,7x6| vs 6x7,8x5|         -0.29           1.53           -0.08                1.47              -1.21            -1.97           0.00
+           8  1                                     3x11,4x14| vs 6x7,7x7,8x12|14          0.90           0.28            0.04                0.20              -0.37            -1.14           1.00
+           9  1                             3x42,12x9,30x1| vs 5x26,7x7,8x10|2,14         -0.03          -0.14           -0.19                0.40               1.82            -0.18           2.00
+          10  1                      2x42,14x5,30x2| vs 5x26,7x6,8x10,24x5|2,4,14          0.57          -0.13           -0.04               -0.12               0.47             0.10           3.00
+  Usable for modeling: 1423 battles (0 dropped for missing values).
+
+==============================================================================
+ 3. MODEL TRAINING: DATASET
+==============================================================================
+  Decisive battles (draws excluded):  1423
+  Usable (every feature known):       1423
+  Distinct matchups (CV groups):      966
+  Army A win share:                   61.91%
+C:\Users\xuntr\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\linear_model\_logistic.py:2071: FutureWarning: The default value for l1_ratios will change from None to (0.0,) in version 1.10. From version 1.10 onwards, only array-like with values in [0, 1] will be allowed, None will be forbidden. To avoid this warning, explicitly set a value, e.g. l1_ratios=(0,).
+. . .
+C:\Users\xuntr\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\linear_model\_logistic.py:2129: FutureWarning: The fitted attributes of LogisticRegressionCV will be simplified in scikit-learn 1.10 to remove redundancy. Set`use_legacy_attributes=False` to enable the new behavior now, or set it to `True` to silence this warning during the transition period while keeping the deprecated behavior for the time being. The default value of use_legacy_attributes will change from True to False in scikit-learn 1.10. See the docstring of LogisticRegressionCV for more details.
+  warnings.warn(
+
+==============================================================================
+ CROSS-VALIDATION (5 FOLDS X 5 REPEATS, GROUPED BY MATCHUP)
+==============================================================================
+                    model  features log_loss log_loss_sd  brier accuracy_pct
+          coin flip (0.5)         0   0.6931      0.0000 0.2500            -
+  base rate (A win share)         0   0.6645      0.0000 0.2358         61.9
+         logreg [hp_only]         1   0.5640      0.0006 0.1928         70.1
+       logreg [size_only]         1   0.6442      0.0004 0.2271         74.5
+            logreg [core]         3   0.4210      0.0010 0.1323         82.0
+      logreg [core+rates]         6   0.4028      0.0014 0.1272         83.2
+             logreg [all]         7   0.3557      0.0013 0.1088         85.6
+   logreg+intercept [all]         7   0.3553      0.0012 0.1087         85.4
+  Note: log_loss: 0.6931 is a coin flip, lower is better. log_loss_sd is the spread across CV repeats. accuracy_pct is shown for reference only.
+
+----- Log-loss difference vs 'base rate (A win share)' (negative = better), 95% interval -----
+                   model   delta  ci_low ci_high verdict
+        logreg [hp_only] -0.1005 -0.1291 -0.0715  better
+      logreg [size_only] -0.0203 -0.0338 -0.0060  better
+           logreg [core] -0.2435 -0.2751 -0.2076  better
+     logreg [core+rates] -0.2617 -0.2944 -0.2261  better
+            logreg [all] -0.3088 -0.3410 -0.2712  better
+  logreg+intercept [all] -0.3092 -0.3414 -0.2716  better
+  Note: The interval resamples whole matchups. 'no clear difference' means the improvement could be luck, so prefer the simpler model.
+
+----- Calibration of 'logreg+intercept [all]' (out-of-fold predictions) -----
+            bin  battles  mean_predicted  observed_a_win_rate
+  (-0.001, 0.1]      208            0.04                 0.03
+     (0.1, 0.2]       86            0.15                 0.07
+     (0.2, 0.3]       82            0.25                 0.24
+     (0.3, 0.4]       64            0.35                 0.36
+     (0.4, 0.5]       67            0.45                 0.45
+     (0.5, 0.6]       67            0.55                 0.64
+     (0.6, 0.7]       86            0.65                 0.70
+     (0.7, 0.8]      108            0.75                 0.74
+     (0.8, 0.9]      176            0.85                 0.90
+     (0.9, 1.0]      479            0.97                 0.95
+  Note: Calibrated = mean_predicted is close to observed_a_win_rate in every row.
+C:\Users\xuntr\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\linear_model\_logistic.py:2071: FutureWarning: The default value for l1_ratios will change from None to (0.0,) in version 1.10. From version 1.10 onwards, only array-like with values in [0, 1] will be allowed, None will be forbidden. To avoid this warning, explicitly set a value, e.g. l1_ratios=(0,).
+  warnings.warn(
+C:\Users\xuntr\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\sklearn\linear_model\_logistic.py:2129: FutureWarning: The fitted attributes of LogisticRegressionCV will be simplified in scikit-learn 1.10 to remove redundancy. Set`use_legacy_attributes=False` to enable the new behavior now, or set it to `True` to silence this warning during the transition period while keeping the deprecated behavior for the time being. The default value of use_legacy_attributes will change from True to False in scikit-learn 1.10. See the docstring of LogisticRegressionCV for more details.
+  warnings.warn(
+
+----- Final model 'logreg+intercept [all]' fitted on all 1423 battles -----
+  Chosen regularisation strength C: 12.33
+             feature  coef_standardised  coef_raw_units
+        log_hp_ratio               0.99            0.74
+       log_atk_ratio               5.39            4.12
+      log_size_ratio               0.38            1.03
+  log_atk_rate_ratio              -3.99           -2.58
+   attack_speed_diff               1.66            1.02
+     move_speed_diff               0.42            0.15
+       artifact_diff               0.90            1.16
+  Note: coef_standardised compares features with each other. exp(coef_raw_units) is the factor on A's win odds per +1 in that feature (for a log ratio, +1 means A has about 2.7x the quantity).
+  Saved to C:\Users\xuntr\source\repos\xuntrue\Pixel-Wars\data\models\win_model.joblib

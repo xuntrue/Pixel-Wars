@@ -1,15 +1,14 @@
 import numpy as np
 import pandas as pd
+
 from sklearn.base import clone
 from sklearn.model_selection import StratifiedGroupKFold
 
 EPS = 1e-6
 
-
 def per_battle_log_loss(y, p) -> np.ndarray:
     p = np.clip(p, EPS, 1 - EPS)
     return -(y * np.log(p) + (1 - y) * np.log(1 - p))
-
 
 def oof_predictions(model, X: pd.DataFrame, y: np.ndarray, groups: np.ndarray,
                     n_splits: int, n_repeats: int, seed: int = 0) -> np.ndarray:
@@ -60,14 +59,15 @@ def paired_delta(y, preds_a, preds_b, groups, n_boot: int = 2000, seed: int = 0)
     low, high = np.percentile(boot, [2.5, 97.5])
     return float(diff.mean()), float(low), float(high)
 
-
 def calibration_table(y: np.ndarray, p: np.ndarray, bins: int = 10) -> pd.DataFrame:
-    """When the model says X%, how often does army A actually win?"""
+    """ When the model says X%, how often does army A actually win? """
     cut = pd.cut(p, np.linspace(0, 1, bins + 1), include_lowest=True)
     table = (pd.DataFrame({"p": p, "y": y, "bin": cut})
              .groupby("bin", observed=True)
-             .agg(battles=("y", "size"), mean_predicted=("p", "mean"),
+             .agg(battles=("y", "size"),
+                  mean_predicted=("p", "mean"),
                   observed_a_win_rate=("y", "mean"))
              .reset_index())
+    table["calibration_gap"] = (table["mean_predicted"] - table["observed_a_win_rate"]).abs()
     table["bin"] = table["bin"].astype(str)
     return table

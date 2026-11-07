@@ -8,6 +8,7 @@ from src.analysis.analyse import analyse
 from src.api.database import DATA_DIR, get_connection, init_db
 from src.catalog import units, artifacts
 from src.battles import battles
+from src.modelling.train import train
 
 from src.ui.catalog_window import CatalogWindow
 from src.ui.record_window import RecordWindow
@@ -66,14 +67,15 @@ COMMANDS = {
     "record": run_recorder,
     "catalog": run_catalog_editor,
     "analyse": analyse,
-    #"train": train,
+    "train": train,
     "clear-battles": clear_all_battles,
 }
 
 if __name__ == "__main__":
     #run_recorder()
     #run_catalog_editor()
-    analyse()
+    #analyse()
+    train()
 
     """
     command = sys.argv[1] if len(sys.argv) > 1 else "record"

@@ -22,12 +22,12 @@ def note(text: str) -> None:
 def pct(part, whole) -> str:
     return f"{100 * part / whole:.2f}%" if whole else "n/a"
 
-def show(df: pd.DataFrame, index: bool = False) -> None:
-    """Print a whole DataFrame (never truncated), indented."""
+def show(df: pd.DataFrame, index: bool = False, float_format_level: int = 2) -> None:
+    """ Print a whole DataFrame (never truncated), indented """
     if df is None or len(df) == 0:
         print("  (no data)")
         return
-    text = df.to_string(index=index, float_format="{:,.2f}".format, na_rep="-")
+    text = df.to_string(index=index, float_format=f"{{:,.{float_format_level}f}}".format, na_rep="-")
     print(indent(text, "  "))
 
 def wilson(successes: float, n: float, z: float = 1.96) -> tuple[float, float]:
@@ -39,7 +39,6 @@ def wilson(successes: float, n: float, z: float = 1.96) -> tuple[float, float]:
     centre = (p + z * z / (2 * n)) / denom
     margin = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
     return centre - margin, centre + margin
-
 
 def add_win_rate(df: pd.DataFrame) -> pd.DataFrame:
     """Add win_pct / ci_low / ci_high (in %) from 'wins' and 'losses' columns.

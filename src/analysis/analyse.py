@@ -2,9 +2,14 @@ from itertools import combinations
 
 import pandas as pd
 
+from scipy.stats import mannwhitneyu # Used for non-parametric comparison of two distributions
+
 from src.api.database import get_connection, init_db
 from src.api.loader import ATTACK_SPEED_RANK, Dataset, load_dataset
 from .stats import add_win_rate, line, note, pct, show, subtitle, title, wilson
+
+UNIT_COLS = ["name", "count", "remaining", "damage_dealt", "attack", "damage", "health", "speed", "attack_speed"]
+ARTIFACT_NAME_COL = "name"
 
 TOP_N = 10        # length of the "top" lists for combinatorial tables
 MIN_SAMPLE = 50  # fewer decisive appearances than this -> flagged "low n"
@@ -24,7 +29,43 @@ COMPARE = [
 
 RANK_NAME = {rank: name for name, rank in ATTACK_SPEED_RANK.items()}
 
-# --- Helper function(s) ---
+def _first_col(df, candidates, what):
+    for c in candidates:
+        if c in df.columns:
+            return c
+    raise KeyError(f"No {what} column found. Columns are: {list(df.columns)}")
+
+def _add_names(rows, catalog, row_keys, catalog_keys, what):
+    if "name" in rows.columns:
+        return rows
+    rk = _first_col(rows, row_keys, f"{what} id (in rows)")
+    ck = _first_col(catalog, catalog_keys, f"{what} id (in catalog)")
+    names = catalog[[ck, "name"]].rename(columns={ck: rk})
+    return rows.merge(names, on=rk, how="left")
+
+def show_battle(ds, battle_id):
+    """ Print one battle: header, then each army's units and artifacts by name """
+    b = ds.battles[ds.battles["battle_id"] == battle_id].iloc[0]
+    line(f"Battle #{battle_id} | {b['timestamp']} | winner: {b['winner']}")
+
+    unit_rows = _add_names(ds.unit_rows, ds.units, ["unit_id", "id"], ["unit_id", "id"], "unit")
+    artifact_rows = _add_names(ds.artifact_rows, ds.artifacts, ["artifact_id", "id"], ["artifact_id", "id"], "artifact")
+
+    for side in ("A", "B"):
+        units = unit_rows[(unit_rows["battle_id"] == battle_id) & (unit_rows["side"] == side)]
+        arts = artifact_rows[(artifact_rows["battle_id"] == battle_id) & (artifact_rows["side"] == side)]
+
+        tag = " (winner)" if b["winner"] == side else ""
+        subtitle(f"Army {side}{tag}")
+        cols = [c for c in UNIT_COLS if c in units.columns]
+        show(units.sort_values("count", ascending=False)[cols])
+
+        if arts.empty:
+            line("Artifacts: none")
+        else:
+            line("Artifacts: " + ", ".join(sorted(arts["name"].astype(str))))
+
+# --- Analysis helper function(s) ---
 def _median_attack_speed(ranks: pd.Series) -> str:
     ranks = ranks.dropna()
     if ranks.empty:
@@ -128,7 +169,7 @@ def _most_common(df: pd.DataFrame) -> pd.DataFrame:
     return df.sort_values("appearances", ascending=False).head(TOP_N)
 
 def _show_best_win_rate(df: pd.DataFrame) -> None:
-    """Highest win rates among combinations with enough decisive appearances."""
+    """ Highest win rates among combinations with enough decisive appearances """
     if not df.empty:
         enough = df[(df["wins"] + df["losses"]) >= MIN_SAMPLE]
         best = enough.sort_values(["win_pct", "ci_low"], ascending=False).head(TOP_N)
@@ -153,6 +194,72 @@ def _unit_artifact_cooccurrence(ds: Dataset, result_of: dict) -> dict:
                                          {"wins": 0, "losses": 0, "draws": 0})
                 tally[outcome] += 1
     return stats
+
+def _artifact_survivor_check(ds: Dataset, d: pd.DataFrame, artifact_name: str) -> None:
+    """ Does the winner's survivor % differ when the WINNING army carried this artifact? """
+    cat = ds.artifacts
+    match = cat[cat["name"].str.lower() == artifact_name.lower()]
+    if match.empty:
+        line(f"Artifact '{artifact_name}' not found. Available: {', '.join(sorted(cat['name']))}")
+        return
+
+    art_id = match["artifact_id"].iloc[0]
+    ar = ds.artifact_rows
+    carried = set(zip(ar.loc[ar["artifact_id"] == art_id, "battle_id"], ar.loc[ar["artifact_id"] == art_id, "side"]))
+
+    # 'Real' multi-unit battles only: the baseline 1v1s have 0%/100% survivors by construction
+    b = ds.battles
+    real_ids = set(b.loc[(b["a_units"] > 1) & (b["b_units"] > 1), "battle_id"])
+    dr = d[d["battle_id"].isin(real_ids)].copy()
+    dr["winner_has"] = [(bid, w) in carried for bid, w in zip(dr["battle_id"], dr["winner"])]
+
+    with_art = dr.loc[dr["winner_has"], "win_survivor_pct"]
+    without = dr.loc[~dr["winner_has"], "win_survivor_pct"]
+
+    subtitle(f"Winner's survivor % with '{artifact_name}' (real battles only)")
+    if with_art.empty:
+        line("No decisive real battles were won by an army carrying this artifact.")
+        return
+    show(with_art.describe(percentiles=[0.25, 0.5, 0.75]).to_frame().T)
+
+    subtitle(f"Winner's survivor % without '{artifact_name}'")
+    show(without.describe(percentiles=[0.25, 0.5, 0.75]).to_frame().T)
+
+    line()
+    line(f"Battles won with it vs without it:   {len(with_art)} ({100 * len(with_art)/len(dr):.2f}%) vs {len(without)} ({100 * len(without)/len(dr):.2f}%)")
+    line(f"Median difference (with - without): {with_art.median() - without.median():+.2f}%")
+    line(f"Mean difference (with - without):   {with_art.mean() - without.mean():+.2f}%")
+    if len(with_art) >= 5:
+        result = mannwhitneyu(with_art, without, alternative="two-sided")
+        p = result.pvalue
+        prob_higher = result.statistic / (len(with_art) * len(without))   # U / (n1 * n2)
+
+        line(f"Mann-Whitney p-value:               {'<0.0001' if p < 0.00001 else f'{p:.5f}'}")
+        line(f"Chance a with-artifact win has a higher survivor % than a without-artifact win: {100 * prob_higher:.2f}%")
+        line()
+
+        direction = ("keep MORE of their army" if prob_higher > 0.5
+             else "keep LESS of their army" if prob_higher < 0.5
+             else "show no tendency either way")
+
+        if p < 0.001:
+            line(f"Strong evidence of a difference: wins with '{artifact_name}' tend to {direction}.")
+            note("A gap this large would almost never appear by chance. That does not mean the artifact "
+                 "causes it: armies carrying it may differ in strength, size or matchup.")
+        elif p < 0.05:
+            line(f"Some evidence of a difference: wins with '{artifact_name}' tend to {direction}.")
+            note("Suggestive but not conclusive. With many artifacts checked, one this size can appear by chance.")
+        else:
+            line(f"No clear difference in survivor % for '{artifact_name}'.")
+            note("This does not prove the artifact has no effect, only that this data cannot show one. "
+                 "The sample may be too small to detect a modest effect.")
+        line()       
+        
+        note("Mann-Whitney p-value measures how often a gap this big would appear by pure chance if the artifact made no difference."
+                "Below 0.05 is usually treated as 'probably real'; it says nothing about how big the effect is or why it exists.")
+
+    else:
+        note("Fewer than 5 wins with this artifact, so no significance test.")
 
 # ========== Sections ==========
 def overview(ds: Dataset) -> None:
@@ -602,9 +709,9 @@ def battle_results(ds: Dataset) -> None:
     subtitle("Winner's survivor % (margin of victory)")
     show(d["win_survivor_pct"].describe(percentiles=[0.25, 0.5, 0.75]).to_frame().T)
     line()
-    line(f"Winner kept 25%+ of its army:        {pct((d['win_survivor_pct'] >= 25).sum(), len(d))}")
-    line(f"Winner kept 50%+ of its army:        {pct((d['win_survivor_pct'] >= 50).sum(), len(d))}")
-    line(f"Winner kept 75%+ of its army:        {pct((d['win_survivor_pct'] >= 75).sum(), len(d))}")
+    for n in [25, 50, 75]:
+        line(f"Winner kept {n}%+ of its army:        {pct((d['win_survivor_pct'] >= n).sum(), len(d))}")
+    _artifact_survivor_check(ds, d, "Necromancer")
 
     subtitle("Loser's survivor % (margin of victory)")
     show(d["lose_survivor_pct"].describe(percentiles=[0.25, 0.5, 0.75]).to_frame().T)
