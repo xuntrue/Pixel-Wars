@@ -74,8 +74,8 @@ COMMANDS = {
 if __name__ == "__main__":
     #run_recorder()
     #run_catalog_editor()
-    #analyse()
-    train()
+    analyse()
+    #train()
 
     """
     command = sys.argv[1] if len(sys.argv) > 1 else "record"

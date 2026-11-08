@@ -182,7 +182,7 @@ def train_logreg() -> None:
     line(f"Average calibration gap: {100 * avg_gap:.2f}%")
     if avg_gap < 0.03:
         line("Well calibrated: the model's percentages match what actually happened.")
-        note(f"With ~{cal['battles'].sum()} battles in {cal.shape[0]} bins, a perfectly calibrated model would still show a gap "
+        note(f"With ~{cal['battles'].sum():.2g} battles in {cal.shape[0]} bins, a perfectly calibrated model would still show a gap "
              "of about 1-2% from luck alone, so anything under ~3% is indistinguishable from perfect.")
     elif avg_gap < 0.06:
         line("Reasonably calibrated: the probabilities are usable, with some small distortions.")

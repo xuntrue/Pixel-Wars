@@ -57,7 +57,7 @@ def build_features(ds: Dataset, include_draws: bool = True) -> pd.DataFrame:
         "log_hp_ratio": np.log1p(d["a_total_hp"]) - np.log1p(d["b_total_hp"]),
         "log_atk_ratio": np.log1p(d["a_total_atk"]) - np.log1p(d["b_total_atk"]),
         "log_size_ratio": np.log(d["a_units"]) - np.log(d["b_units"]),
-        "log_atk_rate_ratio": np.log1p(d["a_atk_x_rate"]) - np.log1p(d["b_atk_x_rate"]),
+        "log_atk_rate_ratio": np.log1p(d["a_atk_x_rate"]) - np.log1p(d["b_atk_x_rate"]), # attack x attack-speed rank
         "attack_speed_diff": d["a_avg_attack_speed"] - d["b_avg_attack_speed"],
         "move_speed_diff": d["a_avg_speed"] - d["b_avg_speed"],
         "artifact_diff": d["a_artifacts"] - d["b_artifacts"],

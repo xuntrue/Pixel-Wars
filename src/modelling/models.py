@@ -35,7 +35,7 @@ CANDIDATES = [
     #("logreg [size_only]", lambda: logistic(False), "size_only"),
     #("logreg [core]", lambda: logistic(False), "core"),
     #("logreg [core+rates]", lambda: logistic(False), "core+rates"),
-    #("logreg [all]", lambda: logistic(False), "all"),
+    ("logreg [all]", lambda: logistic(False), "all"),
     ("logreg+intercept [all]", lambda: logistic(True), "all"),
 ]
 BASELINES = {"coin flip (0.5)", "base rate (A win share)"}
