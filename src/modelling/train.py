@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import joblib
 import numpy as np
 import pandas as pd
@@ -11,19 +13,63 @@ from .evaluate import calibration_table, oof_predictions, paired_delta, per_batt
 from .features import ALL_FEATURES, FEATURE_SETS, build_features
 from .models import BASELINES, CANDIDATES, REFERENCE
 
-MODEL_PATH = DATA_DIR / "models" / "win_model.joblib"
+MODEL_DIR = DATA_DIR / "models" # / "win_model.joblib"
 SAVE_MODEL = True 
 
 N_SPLITS = 5      # Number of K-folds in the outer CV
 N_REPEATS = 5     # Number of repeats of the outer CV (with different random splits each time)
 MIN_ROWS = 1_000  # Minimum number of usable battles to train a model
 
-def train() -> None:
-    train_logreg()
-    #train_random_forest()
-    #train_grad_boost()
-    #train_svm()
+@dataclass
+class TrainingData:
+    ds: Dataset
+    data: pd.DataFrame      # one row per usable decisive battle (features, y, matchup, battle_id)
+    y: np.ndarray           # 1 = army A won
+    groups: np.ndarray      # matchup id, used to keep a matchup inside one CV fold
+    is_real: np.ndarray     # True for real multi-unit battles, False for baseline 1v1s
 
+
+def load_dataset() -> Dataset:
+    title("1. Loading dataset")
+    ds = load_default_dataset()
+    if ds.battles.empty:
+        raise ValueError("No battles recorded yet.")
+    line(f"Loaded {len(ds.battles)} battles from {DATA_DIR / 'pixel_wars.db'}")
+
+    n_battles = 5
+    cols = ["battle_id", "timestamp", "winner"]
+    by_time = ds.battles[cols].sort_values("timestamp")
+    subtitle("All Battles Records")
+    show(by_time.head(n_battles))
+    line("   . . .\n")
+    show(by_time.tail(n_battles))
+    note(f"Showing {n_battles * 2} of {len(ds.battles)} battles.")
+
+    subtitle("Example battle record")
+    real_battles = ds.battles[(ds.battles["a_units"] > 1) & (ds.battles["b_units"] > 1)]
+    pool = real_battles if not real_battles.empty else ds.battles   # fall back if none yet
+    show_battle(ds, pool.sort_values("timestamp")["battle_id"].iloc[-1])
+    return ds
+
+def train() -> None:
+    ds = load_dataset()
+
+    train_logreg(ds)
+    #train_random_forest(ds)
+    #train_grad_boost(ds)
+    #train_svm(ds)
+
+def save_model(name: str, final, features: list[str], trained_on: int, **extra) -> None:
+    """ Save a fitted model as models/<name>.joblib, with the details needed to use it later """
+    if not SAVE_MODEL:
+        return
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    path = MODEL_DIR / f"{name}.joblib"
+    joblib.dump({"name": name, "model": final, "features": features,
+                 "trained_on": trained_on, **extra}, path)
+    line(f"Saved to {path}")
+
+# ----- Training each model -----
 def train_logreg() -> None:
     title("1. Loading dataset")
     ds = load_default_dataset()
@@ -211,10 +257,7 @@ def train_logreg() -> None:
          "the factor on A's win odds per +1 in that feature (for a log ratio, +1 means "
          "A has about 2.7x the quantity).")
 
-    if SAVE_MODEL:
-        MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-        joblib.dump({"model": final, "features": features, "trained_on": len(data)}, MODEL_PATH)
-        line(f"Saved to {MODEL_PATH}")
+    save_model("logreg", final, features, len(data), cv_log_loss=best_row["log_loss"], feature_set=set_name)
     line()
 
 def train_random_forest() -> None:
