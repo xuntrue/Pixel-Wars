@@ -9,9 +9,10 @@ import numpy as np
 def logistic(fit_intercept: bool) -> Pipeline:
     """
     Ridge logistic regression with the regularisation strength tuned by an inner CV.
-    With fit_intercept=False and A-minus-B features, equal armies predict exactly
-    50%, and swapping sides flips the prediction (so side-swap augmentation would
-    be redundant). The scaler must not centre the data, which would break that symmetry.
+    With fit_intercept=False and A-minus-B features,
+    equal armies predict exactly 50%,
+    and swapping sides flips the prediction (so side-swap augmentation would be redundant). 
+    The scaler must not centre the data, which would break that symmetry.
     """
     return Pipeline([
         ("scale", StandardScaler(with_mean=False)),
@@ -26,15 +27,18 @@ def logistic(fit_intercept: bool) -> Pipeline:
         )),
     ])
 
+# TODO: random forest, gradient boosting, SVM, etc. (with hyperparameter tuning)
 
-# (name, model factory or None, feature set or None)
+# All the models that are candidates for training and evaluation, with their respective feature sets
 CANDIDATES = [
+    # (name, model factory or None, feature set or None)
+
     #("coin flip (0.5)", None, None),
     ("base rate (A win share)", lambda: DummyClassifier(strategy="prior"), "hp_only"),
-    #("logreg [hp_only]", lambda: logistic(False), "hp_only"),
-    #("logreg [size_only]", lambda: logistic(False), "size_only"),
-    #("logreg [core]", lambda: logistic(False), "core"),
-    #("logreg [core+rates]", lambda: logistic(False), "core+rates"),
+    ("logreg [hp_only]", lambda: logistic(False), "hp_only"),
+    ("logreg [size_only]", lambda: logistic(False), "size_only"),
+    ("logreg [core]", lambda: logistic(False), "core"),
+    ("logreg [core+rates]", lambda: logistic(False), "core+rates"),
     ("logreg [all]", lambda: logistic(False), "all"),
     ("logreg+intercept [all]", lambda: logistic(True), "all"),
 ]

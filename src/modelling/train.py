@@ -51,47 +51,29 @@ def load_dataset() -> Dataset:
     show_battle(ds, pool.sort_values("timestamp")["battle_id"].iloc[-1])
     return ds
 
-def train() -> None:
-    ds = load_dataset()
-
-    train_logreg(ds)
-    #train_random_forest(ds)
-    #train_grad_boost(ds)
-    #train_svm(ds)
-
 def save_model(name: str, final, features: list[str], trained_on: int, **extra) -> None:
     """ Save a fitted model as models/<name>.joblib, with the details needed to use it later """
     if not SAVE_MODEL:
         return
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     path = MODEL_DIR / f"{name}.joblib"
-    joblib.dump({"name": name, "model": final, "features": features,
-                 "trained_on": trained_on, **extra}, path)
+
+    joblib.dump(
+        {
+            "name": name,
+            "model": final,
+            "features": features,
+            "trained_on": trained_on,
+            **extra
+        },
+        path
+    )
+
     line(f"Saved to {path}")
 
-# ----- Training each model -----
-def train_logreg() -> None:
-    title("1. Loading dataset")
-    ds = load_default_dataset()
-    if ds.battles.empty:
-        raise ValueError("No battles recorded yet.")
-        return
-    if not ds.battles.empty:
-        line(f"Loaded {len(ds.battles)} battles from {DATA_DIR / 'pixel_wars.db'}")
-
-        n_battles = 5
-        subtitle("All Battles Records")
-        show(ds.battles[["battle_id", "timestamp", "winner"]].sort_values("timestamp").head(n_battles))
-        line("   . . .\n")
-        show(ds.battles[["battle_id", "timestamp", "winner"]].sort_values("timestamp").tail(n_battles))
-        note(f"Showing {n_battles * 2} of {len(ds.battles)} battles.")
-
-        subtitle("Example battle record")
-        real = ds.battles[(ds.battles["a_units"] > 1) & (ds.battles["b_units"] > 1)] # multi-unit battle
-        pool = real if not real.empty else ds.battles                                # fall back if no real battles yet
-        example_battle_id = pool.sort_values("timestamp")["battle_id"].iloc[-1]      # most recent
-        show_battle(ds, example_battle_id)
-        
+def train() -> None:
+    ds = load_dataset()
+   
     title("2. Building features")
     line("Features are built from the armies and artifacts present before the battle, so they can be used to predict the outcome.\n")
 
@@ -103,7 +85,7 @@ def train_logreg() -> None:
     feats = build_features(ds, include_draws=False)
     line(f"Features built for {len(feats)} decisive battles.")
 
-    show_n_feature_recrods = 10
+    show_n_feature_recrods = 5
     subtitle(f"Showing feature values for the first {show_n_feature_recrods} battles")
     show(feats[["battle_id", "y", "matchup"] + ALL_FEATURES].head(show_n_feature_recrods).reset_index(drop=True))
     note("matchup is should as unit_id x count")
@@ -257,7 +239,7 @@ def train_logreg() -> None:
          "the factor on A's win odds per +1 in that feature (for a log ratio, +1 means "
          "A has about 2.7x the quantity).")
 
-    save_model("logreg", final, features, len(data), cv_log_loss=best_row["log_loss"], feature_set=set_name)
+    save_model("win_model", final, features, len(data), cv_log_loss=best_row["log_loss"], feature_set=set_name)
     line()
 
 def train_random_forest() -> None:
