@@ -182,7 +182,6 @@ def get_details(conn, battle_id: int) -> dict | None:
 
     return details
 
-
 def format_details(details: dict) -> str:
     def fmt(value):
         return "?" if value is None else value

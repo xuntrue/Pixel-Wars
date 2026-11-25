@@ -41,7 +41,7 @@ def _sum_if_complete(s: pd.Series) -> float:
     return s.sum() if s.notna().all() else np.nan
 
 def _sum_known(s: pd.Series) -> float:
-    return s.sum(min_count=1)  # all-missing stays missing instead of becoming 0
+    return s.sum(min_count=1)  # all-missing stays missing instead of becoming 0\
 
 # --- Entry point ---
 def load_dataset(conn) -> Dataset:
@@ -78,12 +78,7 @@ def load_dataset(conn) -> Dataset:
     bu = bu.merge(units.rename(columns={"name": "unit"}), on="unit_id", how="left")
     bu["winner"] = bu["battle_id"].map(winner)
     bu["result"] = _result(bu["winner"], bu["side"])
-    bu["total_hp"] = bu["count"] * bu["health"]
-    bu["total_atk"] = bu["count"] * bu["atk"]
-    #bu["atk_x_speed"] = bu["count"] * bu["atk"] * bu["speed"]
-    bu["atk_x_rate"] = bu["count"] * bu["atk"] * bu["attack_speed_rank"]
-    bu["rank_sum"] = bu["count"] * bu["attack_speed_rank"]
-    bu["speed_sum"] = bu["count"] * bu["speed"]
+    bu = add_group_columns(bu)
     bu["has_result"] = bu["remaining"].notna() & bu["damage_dealt"].notna()
     bu["deployed_known"] = bu["count"].where(bu["has_result"], 0)
 
@@ -97,17 +92,12 @@ def load_dataset(conn) -> Dataset:
     ba["result"] = _result(ba["winner"], ba["side"])
 
     # --- one row per (battle, side) ---
-    sides = bu.groupby(["battle_id", "side"]).agg(
-        units=("count", "sum"),
-        types=("unit_id", "nunique"),
-        total_hp=("total_hp", "sum"),
-        total_atk=("total_atk", "sum"),
-        atk_x_rate=("atk_x_rate", _sum_if_complete),
-        rank_sum=("rank_sum", _sum_if_complete),
-        speed_sum=("speed_sum", "sum"),
-        survivors=("remaining", _sum_known),
-        damage_dealt=("damage_dealt", _sum_known),
-    ).reset_index()
+    sides = pre_battle_side_metrics(bu)
+    outcomes = (bu.groupby(["battle_id", "side"])
+                  .agg(survivors=("remaining", _sum_known), damage_dealt=("damage_dealt", _sum_known))
+                  .reset_index())
+    sides = sides.merge(outcomes, on=["battle_id", "side"], how="left")
+
     sides["avg_speed"] = sides["speed_sum"] / sides["units"]
     sides["avg_attack_speed"] = sides["rank_sum"] / sides["units"]
     sides = sides.drop(columns=["speed_sum", "rank_sum"])
@@ -137,6 +127,31 @@ def load_dataset(conn) -> Dataset:
     battles = battles.sort_values(["timestamp", "battle_id"]).reset_index(drop=True)
 
     return Dataset(units, artifacts, battles, sides, bu, ba, abilities, unit_abilities, excluded)
+
+def add_group_columns(bu: pd.DataFrame) -> pd.DataFrame:
+    """Per unit-group quantities. bu needs: count, health, atk, speed, attack_speed_rank."""
+    bu["total_hp"] = bu["count"] * bu["health"]
+    bu["total_atk"] = bu["count"] * bu["atk"]
+    bu["atk_x_rate"] = bu["count"] * bu["atk"] * bu["attack_speed_rank"]
+    bu["rank_sum"] = bu["count"] * bu["attack_speed_rank"]
+    bu["speed_sum"] = bu["count"] * bu["speed"]
+    return bu
+
+
+def pre_battle_side_metrics(bu: pd.DataFrame) -> pd.DataFrame:
+    """One row per (battle_id, side) with the pre-battle metrics. bu needs add_group_columns' output plus unit_id."""
+    sides = bu.groupby(["battle_id", "side"]).agg(
+        units=("count", "sum"),
+        types=("unit_id", "nunique"),
+        total_hp=("total_hp", "sum"),
+        total_atk=("total_atk", "sum"),
+        atk_x_rate=("atk_x_rate", _sum_if_complete),
+        rank_sum=("rank_sum", _sum_if_complete),
+        speed_sum=("speed_sum", "sum"),
+    ).reset_index()
+    sides["avg_speed"] = sides["speed_sum"] / sides["units"]
+    sides["avg_attack_speed"] = sides["rank_sum"] / sides["units"]
+    return sides.drop(columns=["speed_sum", "rank_sum"])
 
 def load_default_dataset() -> Dataset:
     """ Open data/pixel_wars.db through src.api.database, load everything, close """

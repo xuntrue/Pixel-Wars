@@ -1,13 +1,14 @@
 import sqlite3
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer,Signal
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-    QPushButton, QVBoxLayout, QWidget,
+    QPushButton, QVBoxLayout, QWidget
 )
 
 from src.battles import battles
 from .army_panel import ArmyPanel
+from .win_predictor import WinPredictor
 
 class RecordBattleTab(QWidget):
     saved = Signal()  # emitted after a battle is saved (the History tab will listen)
@@ -21,6 +22,16 @@ class RecordBattleTab(QWidget):
         panels = QHBoxLayout()
         panels.addWidget(self.panel_a)
         panels.addWidget(self.panel_b)
+
+        # --- prediction label ---
+        self.predictor = WinPredictor(conn)
+        self.prediction_label = QLabel("Win chance: add units to both armies")
+        self.prediction_label.setToolTip(self.predictor.info)
+        self._last_key = None
+        self._timer = QTimer(self)  # recompute 2-3 times a second, only when the armies changed
+        self._timer.setInterval(400)
+        self._timer.timeout.connect(self.update_prediction)
+        self._timer.start()
 
         # --- result row ---
         self.winner_box = QComboBox()
@@ -50,11 +61,48 @@ class RecordBattleTab(QWidget):
         button_row.addWidget(clear_button)
         button_row.addWidget(self.status, stretch=1)
 
-        # --- assemble ---
+        # --- assemble stage ---
         layout = QVBoxLayout(self)
         layout.addLayout(panels, stretch=1)
+        layout.addWidget(self.prediction_label) 
         layout.addLayout(result_row)
         layout.addLayout(button_row)
+    
+    def update_prediction(self):
+        if self.predictor.model is None:
+            self.prediction_label.setText(f"Win chance: {self.predictor.info}")
+            return
+
+        a, b = self.panel_a.army(), self.panel_b.army()
+        art_a, art_b = self.panel_a.artifact_ids(), self.panel_b.artifact_ids()
+        key = (tuple(sorted(a.items())), tuple(sorted(art_a)), tuple(sorted(b.items())), tuple(sorted(art_b)))
+        if key == self._last_key:
+            return                                      # nothing changed
+        self._last_key = key
+        try:
+            p = self.predictor.predict(a, art_a, b, art_b)
+        except Exception as e:                          # never let a prediction problem break the form
+            self.prediction_label.setText("Win chance: unavailable")
+            self.prediction_label.setToolTip(str(e))
+            return
+        if p is None:
+            self.prediction_label.setText("Win chance: add units to both armies")
+        else:
+            self.prediction_label.setText(f"Win chance:  Army A {100 * p:.2f}%   |   Army B {100 * (1 - p):.2f}%")
+    
+    def check_roundtrip(conn, ds, n=50):
+        pred, feats = WinPredictor(conn), build_features(ds, include_draws=False)
+        cols = [c for c in pred.features if c in feats.columns]
+        worst = 0.0
+        for bid in feats["battle_id"].sample(n, random_state=0):
+            u = ds.unit_rows[ds.unit_rows["battle_id"] == bid]
+            a = ds.artifact_rows[ds.artifact_rows["battle_id"] == bid]
+            army = lambda s: dict(zip(u[u["side"] == s]["unit_id"], u[u["side"] == s]["count"]))
+            arts = lambda s: list(a[a["side"] == s]["artifact_id"])
+            got = pred.features_for(army("A"), arts("A"), army("B"), arts("B"))[cols].iloc[0]
+            want = feats.loc[feats["battle_id"] == bid, cols].iloc[0]
+            worst = max(worst, float((got - want).abs().max()))
+        print(f"Largest difference between UI features and training features: {worst:.2e}")
 
     def rebuild(self):
         """Connected to the Units/Artifacts tabs' `changed` signals."""

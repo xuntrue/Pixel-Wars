@@ -130,23 +130,32 @@ def composition_features(ds: Dataset, battle_ids, unit_ids=None, artifact_ids=No
     return composition_features_from_arrays(XA, XB, HA, HB, unit_ids, art_ids)
 
 # ---------------------------------------------------------------- feature table
+def aggregate_features(a, b) -> dict:
+    """a, b: mappings with total_hp, total_atk, units, atk_x_rate, avg_attack_speed, avg_speed,
+    artifacts (numbers, or pandas Series). The single definition of the aggregate features."""
+    return {
+        "log_hp_ratio": np.log1p(a["total_hp"]) - np.log1p(b["total_hp"]),
+        "log_atk_ratio": np.log1p(a["total_atk"]) - np.log1p(b["total_atk"]),
+        "log_size_ratio": np.log(a["units"]) - np.log(b["units"]),
+        "log_atk_rate_ratio": np.log1p(a["atk_x_rate"]) - np.log1p(b["atk_x_rate"]),
+        "attack_speed_diff": a["avg_attack_speed"] - b["avg_attack_speed"],
+        "move_speed_diff": a["avg_speed"] - b["avg_speed"],
+        "artifact_diff": a["artifacts"] - b["artifacts"],
+    }
+
 def build_features(ds: Dataset, include_draws: bool = True, composition: bool = True) -> pd.DataFrame:
     """One row per decisive battle: y (1 = A won), matchup key, aggregate features, composition features."""
     b = ds.battles
     d = b[b["winner"] != "draw"] if not include_draws else b      # filter out draws if requested
 
-    out = pd.DataFrame({
-        "battle_id": d["battle_id"],
-        "y": (d["winner"] == "A").astype(int),
-        # log1p keeps armies with a 0 total (e.g. zero attack) finite.
-        "log_hp_ratio": np.log1p(d["a_total_hp"]) - np.log1p(d["b_total_hp"]),
-        "log_atk_ratio": np.log1p(d["a_total_atk"]) - np.log1p(d["b_total_atk"]),
-        "log_size_ratio": np.log(d["a_units"]) - np.log(d["b_units"]),
-        "log_atk_rate_ratio": np.log1p(d["a_atk_x_rate"]) - np.log1p(d["b_atk_x_rate"]),  # attack x attack-speed rank
-        "attack_speed_diff": d["a_avg_attack_speed"] - d["b_avg_attack_speed"],
-        "move_speed_diff": d["a_avg_speed"] - d["b_avg_speed"],
-        "artifact_diff": d["a_artifacts"] - d["b_artifacts"],
-    })
+    side = lambda s: {"total_hp": d[f"{s}_total_hp"], "total_atk": d[f"{s}_total_atk"],
+                    "units": d[f"{s}_units"], "atk_x_rate": d[f"{s}_atk_x_rate"],
+                    "avg_attack_speed": d[f"{s}_avg_attack_speed"], "avg_speed": d[f"{s}_avg_speed"],
+                    "artifacts": d[f"{s}_artifacts"]}
+    out = pd.DataFrame({"battle_id": d["battle_id"],
+                        "y": (d["winner"] == "A").astype(int),
+                        # log1p keeps armies with a 0 total (e.g. zero attack) finite
+                        **aggregate_features(side("a"), side("b"))})
     out["matchup"] = out["battle_id"].map(matchup_groups(ds))
     out = out.reset_index(drop=True)
     if composition:
