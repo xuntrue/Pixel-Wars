@@ -1,17 +1,26 @@
 import numpy as np
 import pandas as pd
+import time
 
 from sklearn.base import clone
 from sklearn.model_selection import StratifiedGroupKFold
 
 EPS = 1e-6
 
+def _mmss(seconds: float) -> str:
+    s = int(seconds)
+    if s >= 3600:
+        return f"{s // 3600}h{(s % 3600) // 60:02d}m"      # 1h05m
+    m, s = divmod(s, 60)
+    return f"{m}m{s:02d}s" if m else f"{s}s"               # 5m41s or 14s
+
 def per_battle_log_loss(y, p) -> np.ndarray:
     p = np.clip(p, EPS, 1 - EPS)
     return -(y * np.log(p) + (1 - y) * np.log(1 - p))
 
 def oof_predictions(model, X: pd.DataFrame, y: np.ndarray, groups: np.ndarray,
-                    n_splits: int, n_repeats: int, seed: int = 0) -> np.ndarray:
+                    n_splits: int, n_repeats: int, seed: int = 0,
+                    verbose: bool = False) -> np.ndarray:
     """
     Out-of-fold P(A wins), shape (n_repeats, n_rows). Every battle is predicted by
     a model that never saw it or any other battle of the same matchup.
@@ -21,13 +30,26 @@ def oof_predictions(model, X: pd.DataFrame, y: np.ndarray, groups: np.ndarray,
     if model is None:
         preds[:] = 0.5
         return preds
+
+    total, done, start = n_repeats * n_splits, 0, time.perf_counter()
+    width = len(str(total))
     for r in range(n_repeats):
         cv = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed + r)
-        for train_idx, test_idx in cv.split(X, y, groups):
+        for k, (train_idx, test_idx) in enumerate(cv.split(X, y, groups), start=1):
+            done += 1
+            if verbose:
+                print(f"    fold {done:>{width}}/{total}  (repeat {r + 1}, fold {k}) ",
+                      end="", flush=True)
+            t0 = time.perf_counter()
             fitted = clone(model).fit(X.iloc[train_idx], y[train_idx])
             preds[r, test_idx] = fitted.predict_proba(X.iloc[test_idx])[:, 1]
+            if verbose:
+                elapsed = time.perf_counter() - start
+                eta = elapsed / done * (total - done)
+                temp = f"  t={fitted.t_:5.2f}" if hasattr(fitted, "t_") else " " * 9
+                print(f" {time.perf_counter() - t0:7.2f}s   "
+                      f"elapsed {_mmss(elapsed):>6}   ETA {_mmss(eta):>6}{temp}", flush=True)
     return preds
-
 
 def summarise(y: np.ndarray, preds: np.ndarray) -> dict:
     """Mean over repeats of each metric (plus the spread of log loss across repeats)."""

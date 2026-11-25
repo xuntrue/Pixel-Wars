@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import joblib
 import numpy as np
 import pandas as pd
+import re
 
 from src.analysis.stats import line, note, show, subtitle, title
 from src.analysis.analyse import show_battle
@@ -10,8 +11,8 @@ from src.api.database import DATA_DIR
 from src.api.loader import load_default_dataset
 
 from .evaluate import calibration_table, oof_predictions, paired_delta, per_battle_log_loss, summarise
-from .features import ALL_FEATURES, FEATURE_SETS, build_features
-from .models import BASELINES, CANDIDATES, REFERENCE
+from .features import ALL_FEATURES, build_features, describe_feature, feature_sets
+from .models import BASELINES, CANDIDATES, CHAMPION, REFERENCE, VERBOSE
 
 MODEL_DIR = DATA_DIR / "models" # / "win_model.joblib"
 SAVE_MODEL = True 
@@ -73,43 +74,43 @@ def save_model(name: str, final, features: list[str], trained_on: int, **extra) 
 
 def train() -> None:
     ds = load_dataset()
-   
+
     title("2. Building features")
     line("Features are built from the armies and artifacts present before the battle, so they can be used to predict the outcome.\n")
-
-    subtitle("Features sets")
-    for name, feats_in_set in FEATURE_SETS.items():
-        line(f"{name:<12} ({len(feats_in_set)} features): {', '.join(feats_in_set)}")
 
     line("Building features. . . ")
     feats = build_features(ds, include_draws=False)
     line(f"Features built for {len(feats)} decisive battles.")
 
-    show_n_feature_recrods = 5
-    subtitle(f"Showing feature values for the first {show_n_feature_recrods} battles")
-    show(feats[["battle_id", "y", "matchup"] + ALL_FEATURES].head(show_n_feature_recrods).reset_index(drop=True))
-    note("matchup is should as unit_id x count")
-
-    n_before = len(feats)
-    data = feats.dropna(subset=ALL_FEATURES + ["matchup"]).reset_index(drop=True) # Join battles with features and matchup by battle_id
-    n_dropped = n_before - len(data)
-    line(f"Usable for modeling: {len(data)} battles ({n_dropped} dropped for missing values).")
+    n_show = 5
+    subtitle(f"Showing feature values for the first {n_show} battles")
+    show(feats[["battle_id", "y", "matchup"] + ALL_FEATURES].head(n_show).reset_index(drop=True))
+    note("matchup is shown as unit_id x count, with each army's artifact ids after the '|'.")
 
     title("3. Cleaning training data")
-    line(f"Decisive battles (draws excluded):  {len(feats)} of {len(ds.battles)} ({100 * len(feats) / len(ds.battles):.2f}%)")
+    n_before = len(feats)
+    data = feats.dropna(subset=ALL_FEATURES + ["matchup"]).reset_index(drop=True)
+    line(f"Decisive battles (draws excluded):  {n_before} of {len(ds.battles)} ({100 * n_before / len(ds.battles):.2f}%)")
     line(f"Usable (every feature known):       {len(data)}")
-    if len(data) < len(feats):
-        note(f"{len(feats) - len(data)} battle(s) dropped. Most likely a unit has no attack speed set.")
+    if len(data) < n_before:
+        note(f"{n_before - len(data)} battle(s) dropped. Most likely a unit has no attack speed set.")
     if len(data) < MIN_ROWS:
-        print("Not enough usable battles to train yet.")
+        line("Not enough usable battles to train yet.")
         return
+
+    # aggregate sets + composition sets, resolved against the columns that exist in data
+    fs = feature_sets(data)
+    subtitle("Feature sets")
+    for name, cols in fs.items():
+        shown = ", ".join(cols) if len(cols) <= 8 else ", ".join(cols[:3]) + ", ..."
+        line(f"{name:<14} ({len(cols):>4} features): {shown}")
 
     subtitle("Training data summary")
     y = data["y"].to_numpy()
     groups = pd.factorize(data["matchup"])[0]
     line(f"Distinct matchups (CV groups): {len(set(groups))}")
     line(f"Army A win share (y):          {100 * y.mean():.2f}%")
-    
+
     # TODO: Move "4. Model training"
     bt = ds.battles.set_index("battle_id")
     real = ((bt["a_units"] > 1) & (bt["b_units"] > 1)).reindex(data["battle_id"]).to_numpy()
@@ -138,13 +139,19 @@ def train() -> None:
     # ---- cross-validate every candidate on exactly the same rows and folds ----
     rows, preds_by_name = [], {}
     n_models = len(CANDIDATES)
-    line(f"Training {n_models} logistic regression models")
+    n_width = len(str(n_models))
+    name_width = max(len(name) for name, _, _ in CANDIDATES)
+    set_width = max(len(set_name or "log_hp_ratio only") for _, _, set_name in CANDIDATES)
+
+    line(f"Cross-validating {n_models} candidates")
+
     for n, (name, factory, set_name) in enumerate(CANDIDATES, start=1):
-        line(f"[{n}/{n_models}] Cross-validating '{name}' with features {set_name or 'log_hp_ratio only'} . . . ")
-        features = FEATURE_SETS[set_name] if set_name else []
+        label = set_name or "log_hp_ratio only"
+        subtitle(f"[{n:>{n_width}}/{n_models}] {name:<{name_width}}  features: {label:<{set_width}}")
+   
+        features = fs[set_name] if set_name else []
         X = data[features] if features else data[["log_hp_ratio"]]
-        preds = oof_predictions(factory() if factory else None, X, y, groups,
-                                N_SPLITS, N_REPEATS)
+        preds = oof_predictions(factory() if factory else None, X, y, groups, N_SPLITS, N_REPEATS, verbose=VERBOSE)
         preds_by_name[name] = preds
         rows.append({"model": name,
                      "features": len(features) if name not in ("base rate (A win share)",) else 0,
@@ -170,12 +177,12 @@ def train() -> None:
     line(f"Real battles: {real.sum()}   Baseline 1v1: {(~real).sum()}")
 
     # ---- Are the models actually better than the baseline? ----
-    subtitle(f"Log-loss difference vs '{REFERENCE}' (negative = better), 95% interval")
+    subtitle(f"Log-loss difference vs '{CHAMPION}' (negative = better), 95% interval")
     delta_rows = []
     for name, _, _ in CANDIDATES:
-        if name in BASELINES:
+        if name in BASELINES or name == CHAMPION:
             continue
-        delta, low, high = paired_delta(y, preds_by_name[name], preds_by_name[REFERENCE], groups)
+        delta, low, high = paired_delta(y, preds_by_name[name], preds_by_name[CHAMPION], groups)
         delta_rows.append({
             "model": name, "delta": f"{delta:+.4f}",
             "ci_low": f"{low:+.4f}", "ci_high": f"{high:+.4f}",
@@ -198,10 +205,9 @@ def train() -> None:
     subtitle("What was our best model selected")
     best_name = best_row["model"]
     _, factory, set_name = next(c for c in CANDIDATES if c[0] == best_name)
-    features = FEATURE_SETS[set_name]
+    features = fs[set_name]
     line(f"Selected: '{best_name}' ({set_name}, {len(features)} features)")
     line(f"Cross-validated log loss {best_row['log_loss']:.4f}  vs best baseline {baseline_loss:.4f}")
-
 
     subtitle(f"Calibration of '{best_name}' (out-of-fold predictions)")
     cal = calibration_table(y, preds_by_name[best_name].mean(axis=0))
@@ -226,20 +232,32 @@ def train() -> None:
     note("Calibrated = mean_predicted is close to observed_a_win_rate in every row.")
 
     final = factory().fit(data[features], y)
-    clf, scaler = final.named_steps["clf"], final.named_steps["scale"]
-    coefs = pd.DataFrame({
-        "feature": features,
-        "coef_standardised": clf.coef_[0],
-        "coef_raw_units": clf.coef_[0] / scaler.scale_,
-    })
     subtitle(f"Final model '{best_name}' fitted on all {len(data)} battles")
-    line(f"Chosen regularisation strength C: {clf.C_[0]:.4g}")
-    show(coefs)
-    note("coef_standardised compares features with each other. exp(coef_raw_units) is "
-         "the factor on A's win odds per +1 in that feature (for a log ratio, +1 means "
-         "A has about 2.7x the quantity).")
 
-    save_model("win_model", final, features, len(data), cv_log_loss=best_row["log_loss"], feature_set=set_name)
+    steps = getattr(final, "named_steps", {})                  # only logistic regression pipelines have these
+    if "clf" in steps and hasattr(steps["clf"], "coef_"):
+        clf, scaler = steps["clf"], steps["scale"]
+        coefs = pd.DataFrame({
+            "feature": features,
+            "meaning": [describe_feature(f, ds) for f in features],
+            "coef_standardised": clf.coef_[0],
+            "coef_raw_units": clf.coef_[0] / scaler.scale_,
+        })
+        line(f"Chosen regularisation strength C: {clf.C_[0]:.4g}")
+        if clf.fit_intercept:
+            line(f"Intercept (lean toward army A): {clf.intercept_[0]:+.3f}  "
+                 f"(A's odds x{np.exp(clf.intercept_[0]):.2f} when all features are equal)")
+        top_n = 15
+        coefs = coefs.reindex(coefs["coef_standardised"].abs().sort_values(ascending=False).index)
+        show(coefs.head(top_n).reset_index(drop=True))
+        if len(coefs) > top_n:
+            note(f"Showing the {top_n} largest of {len(coefs)} coefficients, by standardised size.")
+        note("coef_standardised compares features with each other. exp(coef_raw_units) is the factor on A's win odds per +1 in that feature (for a log ratio, +1 means A has about 2.7x the quantity).")
+    else:
+        note("This model has no coefficients to print. Its inputs and outputs are still saved with it.")
+
+    file_name = re.sub(r"[^a-z0-9]+", "_", best_name.lower()).strip("_")   # 'logreg [all]' -> 'logreg_all'
+    save_model(file_name, final, features, len(data), cv_log_loss=best_row["log_loss"], feature_set=set_name)
     line()
 
 def train_random_forest() -> None:

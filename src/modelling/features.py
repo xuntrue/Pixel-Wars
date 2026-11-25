@@ -47,7 +47,6 @@ def matchup_groups(ds: Dataset) -> pd.Series:
 
 
 # ---------------------------------------------------------------- army composition
-
 def _side_matrix(rows, id_col, side, battle_ids, ids, value_col=None):
     """(n_battles, n_ids) matrix for one side: the count column if given, else 1 where present."""
     sub = rows[rows["side"] == side]
@@ -171,7 +170,9 @@ def feature_sets(df: pd.DataFrame, min_support: int = 20) -> dict[str, list[str]
     apairs = _cols(df, "apair_", min_support)
     avu = _cols(df, "avu_", min_support)
     awu = _cols(df, "awu_", min_support)
-    raw = _cols(df, "A_", min_support) + _cols(df, "B_", min_support)
+
+    raw_ids = sorted({c[2:] for c in _cols(df, "A_", min_support) + _cols(df, "B_", min_support)})
+    raw = [f"A_{i}" for i in raw_ids] + [f"B_{i}" for i in raw_ids]
 
     sets = dict(FEATURE_SETS)
     sets.update({
@@ -184,26 +185,33 @@ def feature_sets(df: pd.DataFrame, min_support: int = 20) -> dict[str, list[str]
     })
     return sets
 
+def mirror_X(X: pd.DataFrame) -> pd.DataFrame:
+    """Features of the same battles with armies A and B swapped: A_*/B_* exchanged, the rest negated."""
+    a_cols = [c for c in X.columns if c.startswith("A_")]
+    missing = [c for c in a_cols if "B_" + c[2:] not in X.columns]
+    missing += [c for c in X.columns if c.startswith("B_") and "A_" + c[2:] not in X.columns]
+    if missing:
+        raise KeyError(f"A_/B_ columns without a partner (cannot mirror): {missing}")
+    out = X.copy()
+    for a in a_cols:
+        b = "B_" + a[2:]
+        out[a], out[b] = X[b], X[a]
+    anti = [c for c in X.columns if not c.startswith(("A_", "B_"))]
+    out[anti] = 0.0 - X[anti]          # 0.0 - x (not -x) so zeros stay +0.0 and hash identically
+    return out
+
 # Exception: the raw per-side columns (A_*, B_*) made for tree models
 def mirror(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    The same battles with armies A and B swapped: A_*/B_* columns exchanged, every other feature
-    negated, y flipped. Use for side-swap augmentation of models that are not symmetric by
-    construction (trees, SVM). Augment training folds only.
-    """
+    feats = [c for c in df.columns if c not in ID_COLS]
     out = df.copy()
-    for a in [c for c in df.columns if c.startswith("A_")]:
-        b = "B_" + a[2:]
-        out[a], out[b] = df[b], df[a]
-    anti = [c for c in df.columns if c not in ID_COLS and not c.startswith(("A_", "B_"))]
-    out[anti] = -df[anti]
+    out[feats] = mirror_X(df[feats])
     out["y"] = 1 - df["y"]
     return out
 
 def describe_feature(col: str, ds: Dataset) -> str:
     """Readable name for a feature column, for coefficient tables and reports."""
-    u = dict(zip(ds.units["id"], ds.units["name"]))
-    a = dict(zip(ds.artifacts["id"], ds.artifacts["name"]))
+    u = dict(zip(ds.units["unit_id"], ds.units["name"]))
+    a = dict(zip(ds.artifacts["artifact_id"], ds.artifacts["name"]))
     p = col.split("_")
     try:
         if p[0] == "unit":   return f"{u[int(p[1])]}: A's amount vs B's"
